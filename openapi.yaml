@@ -76,6 +76,9 @@ info:
     | `EC-40003` | 400 | 参数超出允许范围 | 检查板块编码、ID 格式 |
     | `EC-40101` | 401 | 登录已失效 | 跳转登录 |
     | `EC-40102` | 401 | 登录已过期 | 跳转登录 |
+    | `EC-40103` | 401 | 账号被锁定（预留） | 提示稍后再试或联系管理员 |
+    | `EC-40104` | 401 | 账号或密码错误 | 就地提示，停留登录页 |
+    | `EC-40105` | 401 | 账号被停用 | 提示联系管理员 |
     | `EC-40301` | 403 | 字段由学校维护，不可修改 | 置灰该字段 |
     | `EC-40302` | 403 | 无权访问该学生档案 | 提示无权限 |
     | `EC-40902` | 409 | 当前状态不允许该操作 | 刷新详情后重试 |
@@ -97,13 +100,29 @@ info:
     - **审核模块已独立成公共模块**（`com.college.growth.review`）：待审列表、通过、退回，
       六个板块共用一套状态机与一套接口；板块一通过公共状态机流转，不重复实现审核逻辑。
     - 其余五个板块仍为骨架：路由与 DTO 已就位，Service 返回 `EC-50000`（HTTP 501）。
-    - 骨架期当前用户由请求头模拟：`X-User-Id`、`X-User-Role`（STU/COU/ADMIN）、`X-Temp-Grant`。
-      这不是鉴权，接入统一认证后移除。
+    - **登录鉴权已接入**：账号密码登录换取 JWT，全部业务接口要求
+      `Authorization: Bearer <token>`，当前用户身份完全来自令牌，不再信任任何请求头。
 
-    ## 七、鉴权（预留）
+    ## 七、鉴权
 
-    鉴权尚未接入。接入后统一使用 `Authorization: Bearer <token>`，
-    过期返回 `EC-40102`，前端拦截后跳转登录。该 Header 现在即可在请求封装中预留。
+    除 `POST /auth/login` 与 `/actuator/**` 外，所有接口都必须带
+    `Authorization: Bearer <token>`：
+
+    | 场景 | 返回码 | HTTP | 前端处理 |
+    |---|---|---|---|
+    | 未带令牌、令牌被吊销、令牌不合法 | `EC-40101` | 401 | 清除本地登录态，跳登录页 |
+    | 令牌过期 | `EC-40102` | 401 | 同上，提示「登录已过期」 |
+    | 账号被锁定（预留） | `EC-40103` | 401 | 提示稍后再试或联系管理员 |
+    | 账号或密码错误 | `EC-40104` | 401 | 就地提示，停留登录页 |
+    | 账号被停用 | `EC-40105` | 401 | 提示联系管理员 |
+
+    令牌为 HS256 签名的 JWT，载荷含 `sub`（用户 ID）、`role`（STU/COU/ADMIN）、
+    `grant`（是否有业务数据临时授权）、`name`（显示名）、`jti`、`iat`、`exp`；
+    默认有效期 8 小时（`security.jwt.ttl-hours`），可在配置中调整。
+    登出会把令牌的 `jti` 写入吊销名单，立即失效。
+
+    角色判定仍在业务侧完成：`STU` 只能访问本人档案，`COU` 按 `org_class.counselor_user_id`
+    判定本班，`ADMIN` 默认无业务数据权限，需 `sys_user.temp_grant = 1` 才可读取（`EC-40302`）。
 
     ## 八、审核
 
@@ -140,12 +159,88 @@ tags:
   - name: 平台公共
     description: 统一响应结构与错误码
 
+security:
+  - bearerAuth: []
+
 paths:
+  /auth/login:
+    post:
+      tags: [平台公共]
+      operationId: login
+      security: []
+      summary: 账号密码登录
+      description: |
+        用学号/工号与密码换取 JWT 令牌。本接口是唯一的匿名业务接口。
+
+        校验失败一律返回 `EC-40104`，不区分「账号不存在」与「密码错误」，
+        也不暴露账号是否存在；账号被停用返回 `EC-40105`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginDTO'
+            example:
+              username: '2023010101'
+              password: Passw0rd!
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/me:
+    get:
+      tags: [平台公共]
+      operationId: currentUser
+      summary: 查询当前登录用户
+      description: |
+        返回令牌对应的用户信息，供前端刷新页面后恢复登录态。
+        令牌失效时返回 `EC-40101` / `EC-40102`。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    post:
+      tags: [平台公共]
+      operationId: logout
+      summary: 退出登录
+      description: |
+        把当前令牌的 `jti` 写入吊销名单（TTL 等于令牌剩余有效期），
+        该令牌立即失效。重复登出或令牌已失效时仍返回成功，便于前端无脑清理本地状态。
+      responses:
+        '200':
+          description: 已退出，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /sections/{code}/{studentId}:
     get:
       tags: [平台公共]
       operationId: getSectionDetail
-      security: []
       summary: 查询板块详情
       description: |
         返回该学生指定学年该板块的详情，`fields` 为该板块已保存的字段值，
@@ -242,7 +337,6 @@ paths:
     put:
       tags: [平台公共]
       operationId: saveSectionDraft
-      security: []
       summary: 保存板块草稿
       description: |
         逐字段校验后写入，把板块保存为 `DRAFT`。
@@ -319,7 +413,6 @@ paths:
     post:
       tags: [平台公共]
       operationId: submitSection
-      security: []
       summary: 提交板块
       description: |
         校验必填字段是否齐全，通过后把板块由 `DRAFT` / `RETURNED` 转为 `SUBMITTED`。
@@ -358,7 +451,6 @@ paths:
     post:
       tags: [平台公共]
       operationId: withdrawSection
-      security: []
       summary: 撤回提交
       description: |
         仅学生本人可撤回（`X-User-Id` 必须等于路径中的 `studentId`），`SUBMITTED` 转 `DRAFT`，
@@ -396,7 +488,6 @@ paths:
     post:
       tags: [基本信息]
       operationId: syncStudentFields
-      security: []
       summary: 从学工主数据重新同步基础字段
       description: |
         把学生主数据（`stu_student`）里的值**强制覆盖**到档案的基础字段：
@@ -442,7 +533,6 @@ paths:
     get:
       tags: [基本信息]
       operationId: revealSensitiveField
-      security: []
       summary: 查看敏感字段明文
       description: |
         仅辅导员（`X-User-Role: COU`）或持临时授权的管理员可调用；学生调用返回 `EC-40302`。
@@ -494,7 +584,6 @@ paths:
     post:
       tags: [基本信息]
       operationId: confirmPendingField
-      security: []
       summary: 确认待确认值
       description: |
         学生修改 `STU_CFM` 类字段后，新值暂存于待确认区（`pending_*`），对外仍返回旧值。
@@ -538,7 +627,6 @@ paths:
     post:
       tags: [基本信息]
       operationId: rejectPendingField
-      security: []
       summary: 驳回待确认值
       description: |
         丢弃待确认区的新值，正式值保持不变，`confirmStatus` 置为 `REJECTED`。
@@ -571,7 +659,6 @@ paths:
     get:
       tags: [审核]
       operationId: listReviewTasks
-      security: []
       summary: 待审列表
       description: |
         六个板块共用的待审列表。辅导员只能看到自己带班学生的板块（按 `org_class.counselor_user_id` 判定），
@@ -640,7 +727,6 @@ paths:
     post:
       tags: [审核]
       operationId: approveSection
-      security: []
       summary: 审核通过
       description: |
         仅该班现任辅导员可操作（BR-S03），管理员与学生均返回 `EC-40302`。
@@ -678,7 +764,6 @@ paths:
     post:
       tags: [审核]
       operationId: rejectSection
-      security: []
       summary: 审核退回
       description: |
         仅该班现任辅导员可操作，`SUBMITTED` 转 `RETURNED`。退回理由必填且不少于 10 字，
@@ -716,7 +801,10 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: 预留，当前尚未启用鉴权
+      bearerFormat: JWT
+      description: |
+        登录后返回的 JWT，放在 `Authorization: Bearer <token>` 中。
+        除 `POST /auth/login` 与 `/actuator/**` 外，所有接口都必须携带。
 
   parameters:
     SectionCode:
@@ -747,6 +835,17 @@ components:
         example: 2025-2026-1
 
   responses:
+    Unauthorized:
+      description: 未登录或登录失效，`code` 为 `EC-40101` / `EC-40102` / `EC-40104`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+          example:
+            code: EC-40101
+            message: 登录已失效，请重新登录
+            traceId: a1b2c3d4e5f60708
+            timestamp: '2026-11-26T15:23:50+08:00'
     BadRequest:
       description: 参数错误，`code` 为 `EC-40001` / `EC-40002` / `EC-40003`
       content:
@@ -849,6 +948,96 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/SectionVO'
+
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginVO'
+
+    UserResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserVO'
+
+    LoginVO:
+      type: object
+      description: 登录结果。令牌与用户信息一次返回，前端不必登录后再请求 `/auth/me`。
+      required: [token, tokenType, expiresIn, user]
+      properties:
+        token:
+          type: string
+          description: 'JWT，前端拼成 `Authorization: Bearer <token>` 后随请求发送'
+          example: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMDAxIn0.7bJ3Y2xk
+        tokenType:
+          type: string
+          description: 固定 `Bearer`，便于前端拼接头
+          example: Bearer
+        expiresIn:
+          type: integer
+          format: int64
+          description: 有效期秒数，前端据此提前刷新或提示
+          example: 28800
+        user:
+          $ref: '#/components/schemas/UserVO'
+
+    UserVO:
+      type: object
+      description: |
+        当前登录用户。只含前端渲染所需信息：`role` 决定菜单与按钮，
+        `studentId` 决定学生端读哪一份档案。手机号、身份证等业务字段仍走板块接口并按权限脱敏。
+      required: [userId, username, displayName, role, roleLabel, tempGrant]
+      properties:
+        userId:
+          type: integer
+          format: int64
+          example: 1001
+        username:
+          type: string
+          description: 登录名，学生为学号，教师为工号
+          example: '2023010101'
+        displayName:
+          type: string
+          example: 林清和
+        role:
+          type: string
+          description: 角色编码
+          enum: [STU, COU, ADMIN]
+          example: STU
+        roleLabel:
+          type: string
+          description: 角色中文名，前端直接展示
+          example: 学生
+        studentId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 学生账号关联的学生 ID，其他角色为 `null`
+          example: 1001
+        tempGrant:
+          type: boolean
+          description: 管理员是否持临时只读授权；非管理员恒为 `false`
+          example: false
+
+    LoginDTO:
+      type: object
+      description: 登录入参
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 64
+          example: '2023010101'
+        password:
+          type: string
+          maxLength: 128
+          description: 明文密码，仅经 HTTPS 传输，服务端用 PBKDF2 比对摘要
+          example: Passw0rd!
 
     ValidationErrorResponse:
       allOf:

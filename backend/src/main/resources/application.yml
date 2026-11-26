@@ -63,6 +63,13 @@ management:
     health:
       show-details: when-authorized
 
+security:
+  jwt:
+    # 至少 32 字符，启动时校验；生产必须用环境变量覆盖，不要沿用此默认值
+    secret: ${JWT_SECRET:dev-only-secret-please-override-in-prod-32}
+    # 令牌有效期（小时），前端据此决定提前续期
+    ttl-hours: ${JWT_TTL_HOURS:8}
+
 logging:
   level:
     root: info

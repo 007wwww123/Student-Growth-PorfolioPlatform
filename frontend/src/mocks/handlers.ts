@@ -1,31 +1,37 @@
 import { HttpResponse, http } from 'msw'
 import { API_BASE_PATH, SUCCESS_CODE } from '../api/constants'
-import type { FieldErrorDetail, SectionCode, UserRole } from '../api/types'
+import type { FieldErrorDetail, SectionCode } from '../api/types'
 import {
   MockError,
   approveSection,
+  authenticate,
   getSection,
   handlePending,
   listTasks,
+  loginUser,
   rejectSection,
   revealValue,
+  roleLabelOf,
   saveSection,
   submitSection,
   withdrawSection,
+  type MockIdentity,
 } from './data'
 
 /**
  * MSW 请求处理器。
  *
- * <p>覆盖板块一的学生端与审核端全部接口，路径、响应结构、错误码与 openapi.yaml、
+ * <p>覆盖登录、板块一学生端与审核端全部接口，路径、响应结构、错误码与 openapi.yaml、
  * 后端 ResultCode 对齐；关闭 VITE_USE_MOCK 即切换到真实后端，页面不需要改。</p>
  *
- * <p>身份从请求头读取（与后端骨架期一致），因此切换顶部「演示身份」后，
- * 待审范围、字段可写性、审核权限都会真实变化。</p>
+ * <p>鉴权行为与后端保持一致：除 {@code /auth/login} 外都要求
+ * {@code Authorization: Bearer <token>}，缺失或无效返回 {@code EC-40101}。
+ * 这样「未登录拦截」在 mock 模式下也是真实生效的，而不是摆设。</p>
  */
 
 const SECTION_CODES: SectionCode[] = ['basic', 'academic', 'interest', 'life', 'career', 'mentor']
 const DEFAULT_YEAR = '2025-2026-1'
+const MOCK_TTL_SECONDS = 8 * 3600
 
 function traceId(): string {
   const random = () => Math.random().toString(16).slice(2, 10).padEnd(8, '0')
@@ -69,7 +75,7 @@ function fail(code: string, message: string, status: number, details?: FieldErro
 }
 
 /** 统一把 MockError 翻成 Result 包装的错误响应。 */
-function handle(run: () => Response) {
+function guard(run: () => Response): Response {
   try {
     return run()
   } catch (error) {
@@ -80,18 +86,34 @@ function handle(run: () => Response) {
   }
 }
 
-function roleOf(request: Request): UserRole {
-  const role = (request.headers.get('X-User-Role') ?? 'STU').toUpperCase()
-  return role === 'COU' || role === 'ADMIN' ? (role as UserRole) : 'STU'
+function tokenOf(request: Request): string | null {
+  const header = request.headers.get('Authorization') ?? ''
+  if (!header.toLowerCase().startsWith('bearer ')) {
+    return null
+  }
+  const token = header.slice(7).trim()
+  return token === '' ? null : token
 }
 
-function userIdOf(request: Request): number {
-  const value = Number(request.headers.get('X-User-Id') ?? '0')
-  return Number.isInteger(value) && value > 0 ? value : 0
+/** 除登录外所有接口的统一入口：先验令牌，再执行业务。 */
+function withAuth(request: Request, run: (who: MockIdentity) => Response): Response {
+  const who = authenticate(tokenOf(request))
+  if (!who) {
+    return fail('EC-40101', '未登录或缺少令牌', 401)
+  }
+  return guard(() => run(who))
 }
 
-function tempGrantOf(request: Request): boolean {
-  return (request.headers.get('X-Temp-Grant') ?? '').toLowerCase() === 'true'
+function userPayload(who: MockIdentity) {
+  return {
+    userId: who.userId,
+    username: who.username,
+    displayName: who.displayName,
+    role: who.role,
+    roleLabel: roleLabelOf(who.role),
+    studentId: who.studentId,
+    tempGrant: who.tempGrant,
+  }
 }
 
 function parseCode(raw: string | readonly string[]): SectionCode | null {
@@ -111,6 +133,35 @@ function fieldKeyOf(raw: string | readonly string[]): string {
 }
 
 export const handlers = [
+  http.post(`${API_BASE_PATH}/auth/login`, async ({ request }) => {
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    const username = String(body.username ?? '').trim()
+    const password = String(body.password ?? '')
+    if (!username || !password) {
+      return fail('EC-40002', '请输入登录名和密码', 400)
+    }
+    return guard(() => {
+      const result = loginUser(username, password)
+      return ok({
+        token: result.token,
+        tokenType: 'Bearer',
+        expiresIn: MOCK_TTL_SECONDS,
+        user: userPayload(result.user),
+      })
+    })
+  }),
+
+  http.get(`${API_BASE_PATH}/auth/me`, ({ request }) =>
+    withAuth(request, (who) => ok(userPayload(who))),
+  ),
+
+  http.post(`${API_BASE_PATH}/auth/logout`, ({ request }) => withAuth(request, () => ok())),
+
   http.get(`${API_BASE_PATH}/sections/:code/:studentId`, ({ params, request }) => {
     const code = parseCode(params.code as string)
     const studentId = parseId(params.studentId as string)
@@ -122,7 +173,7 @@ export const handlers = [
     }
     const url = new URL(request.url)
     const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-    return ok(getSection(code, studentId, academicYear, roleOf(request)))
+    return withAuth(request, (who) => ok(getSection(code, studentId, academicYear, who.role)))
   }),
 
   http.put(`${API_BASE_PATH}/sections/:code/:studentId`, async ({ params, request }) => {
@@ -149,14 +200,8 @@ export const handlers = [
     }
     const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
 
-    return handle(() => {
-      saveSection(
-        code,
-        studentId,
-        academicYear,
-        { fields },
-        roleOf(request),
-      )
+    return withAuth(request, (who) => {
+      saveSection(code, studentId, academicYear, { fields }, who.role)
       return ok()
     })
   }),
@@ -173,8 +218,8 @@ export const handlers = [
 
     const url = new URL(request.url)
     const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-    return handle(() => {
-      submitSection(code, studentId, academicYear, roleOf(request))
+    return withAuth(request, (who) => {
+      submitSection(code, studentId, academicYear, who.role)
       return ok()
     })
   }),
@@ -191,8 +236,8 @@ export const handlers = [
 
     const url = new URL(request.url)
     const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-    return handle(() => {
-      withdrawSection(code, studentId, academicYear, roleOf(request))
+    return withAuth(request, (who) => {
+      withdrawSection(code, studentId, academicYear, who.role)
       return ok()
     })
   }),
@@ -207,7 +252,7 @@ export const handlers = [
       }
       const url = new URL(request.url)
       const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-      return handle(() =>
+      return withAuth(request, (who) =>
         ok(
           handlePending(
             code,
@@ -215,7 +260,7 @@ export const handlers = [
             academicYear,
             fieldKeyOf(params.fieldCode as string),
             'confirm',
-            roleOf(request),
+            who.role,
           ),
         ),
       )
@@ -232,14 +277,14 @@ export const handlers = [
       }
       const url = new URL(request.url)
       const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-      return handle(() => {
+      return withAuth(request, (who) => {
         handlePending(
           code,
           studentId,
           academicYear,
           fieldKeyOf(params.fieldCode as string),
           'reject',
-          roleOf(request),
+          who.role,
         )
         return ok()
       })
@@ -256,14 +301,14 @@ export const handlers = [
       }
       const url = new URL(request.url)
       const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-      return handle(() =>
+      return withAuth(request, (who) =>
         ok(
           revealValue(
             code,
             studentId,
             academicYear,
             fieldKeyOf(params.fieldCode as string),
-            roleOf(request),
+            who.role,
           ),
         ),
       )
@@ -280,7 +325,9 @@ export const handlers = [
       pageNum: Number(url.searchParams.get('pageNum') ?? '1'),
       pageSize: Number(url.searchParams.get('pageSize') ?? '20'),
     }
-    return handle(() => ok(listTasks(query, roleOf(request), userIdOf(request), tempGrantOf(request))))
+    return withAuth(request, (who) =>
+      ok(listTasks(query, who.role, who.userId, who.tempGrant)),
+    )
   }),
 
   http.post(`${API_BASE_PATH}/review/:code/:studentId/approve`, async ({ params, request }) => {
@@ -289,10 +336,10 @@ export const handlers = [
     if (!code || !studentId) {
       return fail('EC-40003', '参数不合法', 400)
     }
-    const body = await request.json().catch(() => ({}))
-    const academicYear = String((body as Record<string, unknown>).academicYear ?? DEFAULT_YEAR)
-    return handle(() => {
-      approveSection(code, studentId, academicYear, roleOf(request), userIdOf(request), tempGrantOf(request))
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
+    return withAuth(request, (who) => {
+      approveSection(code, studentId, academicYear, who.role, who.userId, who.tempGrant)
       return ok()
     })
   }),
@@ -303,17 +350,16 @@ export const handlers = [
     if (!code || !studentId) {
       return fail('EC-40003', '参数不合法', 400)
     }
-    const body = await request.json().catch(() => ({}))
-    const payload = body as Record<string, unknown>
-    return handle(() => {
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+    return withAuth(request, (who) => {
       rejectSection(
         code,
         studentId,
-        String(payload.academicYear ?? DEFAULT_YEAR),
-        String(payload.reason ?? ''),
-        roleOf(request),
-        userIdOf(request),
-        tempGrantOf(request),
+        String(body.academicYear ?? DEFAULT_YEAR),
+        String(body.reason ?? ''),
+        who.role,
+        who.userId,
+        who.tempGrant,
       )
       return ok()
     })

@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import FieldList from '@/components/FieldList.vue'
 import PendingHint from '@/components/PendingHint.vue'
 import { isApiError, type ApiError } from '@/api/http'
-import { getIdentity } from '@/api/identity'
+import { getUser } from '@/auth/session'
 import { fetchSection, saveSection, submitSection, withdrawSection } from '@/api/sections'
 import type { SectionCode, SectionVO } from '@/api/types'
 import { formatValue, formFromFields, renderFieldsOf, type PendingItem } from '@/fieldMeta'
@@ -29,7 +29,9 @@ const confirmingWithdraw = ref(false)
 const error = ref<ApiError | null>(null)
 const notice = ref('')
 
-const identity = getIdentity()
+/** 学生看自己的档案；辅导员/管理员从这里进入时只能查看，学生 ID 由路由上下文决定。 */
+const user = getUser()
+const studentId = computed(() => user?.studentId ?? DEMO_STUDENT_ID)
 
 const editable = computed(() => section.value?.editable ?? true)
 const statusLabel = computed(() =>
@@ -37,7 +39,7 @@ const statusLabel = computed(() =>
 )
 
 /** 学生本人才有撤回入口；辅导员与管理员进入时只看得到只读内容。 */
-const isStudent = computed(() => identity.role === 'STU')
+const isStudent = computed(() => user?.role === 'STU')
 const canWithdraw = computed(() => isStudent.value && section.value?.status === 'SUBMITTED')
 const withdrawUsed = computed(() => (section.value?.withdrawCount ?? 0) >= 1)
 
@@ -95,7 +97,7 @@ async function load(): Promise<void> {
   notice.value = ''
   confirmingWithdraw.value = false
   try {
-    const data = await fetchSection(props.code, DEMO_STUDENT_ID, DEMO_ACADEMIC_YEAR)
+    const data = await fetchSection(props.code, studentId.value, DEMO_ACADEMIC_YEAR)
     section.value = data
     form.value = formFromFields(data.fields, renderFieldsOf(data.fieldMeta))
   } catch (e) {
@@ -150,7 +152,7 @@ async function onSave(): Promise<void> {
   }
   saving.value = true
   try {
-    await saveSection(props.code, DEMO_STUDENT_ID, payload)
+    await saveSection(props.code, studentId.value, payload)
     notice.value = '草稿已保存'
     await load()
   } catch (e) {
@@ -167,7 +169,7 @@ async function onSubmit(): Promise<void> {
   try {
     await submitSection(
       props.code,
-      DEMO_STUDENT_ID,
+      studentId.value,
       section.value?.academicYear ?? DEMO_ACADEMIC_YEAR,
     )
     notice.value = '已提交，等待审核'
@@ -197,7 +199,7 @@ async function onWithdraw(): Promise<void> {
   try {
     await withdrawSection(
       props.code,
-      DEMO_STUDENT_ID,
+      studentId.value,
       section.value?.academicYear ?? DEMO_ACADEMIC_YEAR,
     )
     notice.value = '已撤回，可继续修改后重新提交'

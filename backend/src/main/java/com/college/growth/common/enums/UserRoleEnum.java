@@ -26,12 +26,13 @@ public enum UserRoleEnum {
     }
 
     /**
-     * 解析请求头中的角色标识，非法值回退为学生。
+     * 解析角色标识，非法值回退为学生。
      *
-     * <p>骨架期尚未接入统一认证，角色由请求头注入；接入后改为从会话上下文中读取，
-     * 请求头方式必须关闭，否则等于允许任意调用方自封角色。</p>
+     * <p>入参来自 {@code sys_user.role} 与令牌载荷，不再来自请求头；
+     * 非法值回退而不是抛异常，是为了避免脏数据把整个登录流程卡死，
+     * 但调用方应保证写入时已经过校验。</p>
      */
-    public static UserRoleEnum fromHeader(String value) {
+    public static UserRoleEnum fromCode(String value) {
         if (value == null || value.isBlank()) {
             return STU;
         }

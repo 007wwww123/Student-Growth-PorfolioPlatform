@@ -1,0 +1,60 @@
+package com.college.growth.auth.controller;
+
+import com.college.growth.auth.dto.LoginDTO;
+import com.college.growth.auth.service.AuthService;
+import com.college.growth.auth.vo.LoginVO;
+import com.college.growth.auth.vo.UserVO;
+import com.college.growth.common.result.Result;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 登录与会话接口（S-1-02）。
+ *
+ * <p>{@code /auth/login} 是唯一匿名可访问的业务接口，其余接口都要求
+ * {@code Authorization: Bearer <token>}，由 {@code JwtAuthFilter} 统一拦截。</p>
+ */
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    /** 账号密码登录，成功后返回令牌与用户信息。 */
+    @PostMapping("/login")
+    public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto) {
+        return Result.success(authService.login(dto));
+    }
+
+    /** 当前登录用户，供刷新页面后恢复会话。 */
+    @GetMapping("/me")
+    public Result<UserVO> me() {
+        return Result.success(authService.me());
+    }
+
+    /** 登出：令牌进入吊销名单，客户端同时清除本地状态。 */
+    @PostMapping("/logout")
+    public Result<Void> logout(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        authService.logout(bearerOf(authorization));
+        return Result.success();
+    }
+
+    private String bearerOf(String authorization) {
+        if (authorization == null) {
+            return null;
+        }
+        String value = authorization.trim();
+        return value.regionMatches(true, 0, "Bearer ", 0, 7) ? value.substring(7).trim() : value;
+    }
+}

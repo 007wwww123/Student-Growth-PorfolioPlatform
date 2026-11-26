@@ -26,6 +26,8 @@ application-local.yaml
 
 ### 其他 ###
 *.tmp
+# curl 联调时保存的令牌，禁止入库
+.token_*
 
 ### 前端 frontend/ ###
 node_modules/
