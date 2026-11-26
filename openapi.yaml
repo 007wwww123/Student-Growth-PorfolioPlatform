@@ -62,6 +62,8 @@ info:
     `DRAFT` 草稿 → `SUBMITTED` 已提交 → `APPROVED` 已通过 → `LOCKED` 已归档，
     `SUBMITTED` 可被退回为 `RETURNED`，`RETURNED` 可再次提交。
     **仅 `DRAFT` 与 `RETURNED` 允许保存与提交**，其余状态返回 `EC-40902`。
+    `SUBMITTED` 可由学生本人撤回为 `DRAFT`（全生命周期一次），
+    也可由该班现任辅导员通过或退回；审核接口见 `## 八、审核`。
 
     ## 五、错误码
 
@@ -78,6 +80,7 @@ info:
     | `EC-40302` | 403 | 无权访问该学生档案 | 提示无权限 |
     | `EC-40902` | 409 | 当前状态不允许该操作 | 刷新详情后重试 |
     | `EC-40903` | 409 | 撤回次数已用完 | 提示不可撤回 |
+    | `EC-40907` | 409 | 内容已被他人修改（乐观锁冲突） | 提示刷新后重试 |
     | `EC-42201` | 422 | 字段校验未通过 | 按 `details` 逐字段提示 |
     | `EC-42202` | 422 | 必填内容未填写 | 按 `details` 定位字段 |
     | `EC-42203` | 422 | 退回理由不少于 10 字 | 提示补足字数 |
@@ -88,13 +91,34 @@ info:
 
     ## 六、当前实现状态
 
-    六个板块的路由、DTO、VO 已就位，Service 层为占位实现，返回 `EC-50000`（HTTP 501）。
-    本契约即前后端并行开发的依据：前端按本文件用 MSW 造 mock，后端按本文件补实现。
+    - **板块一（basic）后端已闭环**：详情、保存、提交、撤回、待确认字段确认/驳回、敏感字段查看。
+      字段定义来自 `arc_field_def`，初始化脚本见
+      `backend/src/main/resources/db/sql/03_insert_basic_field_defs.sql`（16 个字段）。
+    - **审核模块已独立成公共模块**（`com.college.growth.review`）：待审列表、通过、退回，
+      六个板块共用一套状态机与一套接口；板块一通过公共状态机流转，不重复实现审核逻辑。
+    - 其余五个板块仍为骨架：路由与 DTO 已就位，Service 返回 `EC-50000`（HTTP 501）。
+    - 骨架期当前用户由请求头模拟：`X-User-Id`、`X-User-Role`（STU/COU/ADMIN）、`X-Temp-Grant`。
+      这不是鉴权，接入统一认证后移除。
 
     ## 七、鉴权（预留）
 
     鉴权尚未接入。接入后统一使用 `Authorization: Bearer <token>`，
     过期返回 `EC-40102`，前端拦截后跳转登录。该 Header 现在即可在请求封装中预留。
+
+    ## 八、审核
+
+    六个板块共用同一套审核流程，接口路径不挂在板块下：
+
+    | 步骤 | 接口 | 角色 | 状态变化 |
+    |---|---|---|---|
+    | 待审列表 | `GET /review/tasks` | 辅导员（只看本班）/ 持授权管理员 | 不变 |
+    | 通过 | `POST /review/{code}/{studentId}/approve` | 该班现任辅导员 | `SUBMITTED → APPROVED` |
+    | 退回 | `POST /review/{code}/{studentId}/reject` | 该班现任辅导员 | `SUBMITTED → RETURNED` |
+    | 撤回 | `POST /sections/{code}/{studentId}/withdraw` | 学生本人 | `SUBMITTED → DRAFT` |
+
+    审核权按 `org_class.counselor_user_id` 判定，非本班一律 `EC-40302`；
+    通过/退回/撤回都会同时写 `arc_change_log` 与 `sys_audit_log`，并与业务同一事务（BR-S11）。
+    六板块全部 `APPROVED` 时，`arc_profile.completed` 由审核流程置真（BR-S10）。
 
 servers:
   - url: http://localhost:8080/api
@@ -157,11 +181,55 @@ paths:
                       fields:
                         name: 林清和
                         studentNo: '2023010101'
-                        gender: 女
-                        idCard: 3301**********0028
-                        phone: '13800001234'
+                        gender: F
+                        nation: 汉族
+                        idCard: 330106********0012
+                        nativePlace: 浙江 杭州
+                        dormNo: 3-412
+                        classId: RJ2401
+                        majorId: 软件工程
+                        phone: 138****1234
                         email: linqinghe@example.edu.cn
+                        emergencyContact: 林建国（父）
+                        emergencyPhone: '13900001234'
+                        photo: [10231]
+                        econLevel: NORMAL
+                        familyStructure: ONLY_CHILD
+                      fieldMeta:
+                        - key: name
+                          fieldCode: basic.name
+                          fieldName: 姓名
+                          fieldType: TEXT
+                          required: true
+                          source: SIS
+                          editable: false
+                          masked: false
+                          pendingConfirm: false
+                        - key: idCard
+                          fieldCode: basic.idCard
+                          fieldName: 身份证号
+                          fieldType: TEXT
+                          required: true
+                          source: SIS
+                          sensitive: 2
+                          editable: false
+                          masked: true
+                          pendingConfirm: false
+                        - key: phone
+                          fieldCode: basic.phone
+                          fieldName: 手机
+                          fieldType: TEXT
+                          required: false
+                          source: STU_CFM
+                          sensitive: 1
+                          editable: true
+                          masked: true
+                          pendingConfirm: true
+                          pendingValue: 139****5678
                       editable: true
+                      completeness: 62.50
+                      submitCount: 0
+                      withdrawCount: 0
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -180,9 +248,12 @@ paths:
         逐字段校验后写入，把板块保存为 `DRAFT`。
         仅 `DRAFT` / `RETURNED` 状态允许写入，其余状态返回 `EC-40902`。
 
-        请求体为对应板块的 SaveDTO（`oneOf` 六个定义），字段名必须与
-        `backend/src/main/java/com/college/growth/{板块}/dto` 中的属性名一致。
-        未传的字段按「不修改」处理，传 `null` 表示清空。
+        请求体为 `{academicYear, fields}`：`fields` 的键是字段短名（如 `phone`），
+        值与字段类型对应。字段的类型、必填、枚举、校验规则、可编辑角色全部来自
+        `arc_field_def`，接口不再逐个声明——所以新增字段不需要改契约。
+
+        未出现的字段按「不修改」处理，传 `null` 表示清空（必填项清空后无法提交）。
+        `STU_CFM` 类字段由学生修改时进入待确认区，辅导员确认前仍返回旧值（BR-F06）。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
@@ -203,12 +274,13 @@ paths:
                 summary: 基本信息（code=basic）
                 value:
                   academicYear: 2025-2026-1
-                  name: 林清和
-                  studentNo: '2023010101'
-                  gender: 女
-                  idCard: 3301**********0028
-                  phone: '13800001234'
-                  email: linqinghe@example.edu.cn
+                  fields:
+                    classId: RJ2401
+                    phone: '13900005678'
+                    email: linqinghe@example.edu.cn
+                    emergencyContact: 林建国（父）
+                    emergencyPhone: '13900001234'
+                    photo: [10231]
               academic:
                 summary: 学业发展（code=academic）
                 value:
@@ -257,8 +329,8 @@ paths:
         - $ref: '#/components/parameters/StudentId'
         - name: academicYear
           in: query
-          required: true
-          description: 学年，格式 `2025-2026-1`
+          required: false
+          description: 学年，格式 `2025-2026-1`；不传时取当前学年
           schema:
             type: string
             example: 2025-2026-1
@@ -281,6 +353,317 @@ paths:
           $ref: '#/components/responses/InternalError'
         '501':
           $ref: '#/components/responses/NotImplemented'
+
+  /sections/{code}/{studentId}/withdraw:
+    post:
+      tags: [平台公共]
+      operationId: withdrawSection
+      security: []
+      summary: 撤回提交
+      description: |
+        仅学生本人可撤回（`X-User-Id` 必须等于路径中的 `studentId`），`SUBMITTED` 转 `DRAFT`，
+        `withdrawCount` 加一。全生命周期仅一次，第二次返回 `EC-40903`；非本人返回 `EC-40302`。
+
+        撤回后板块恢复可编辑，撤回次数不因再次提交而重置。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 撤回成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+              example:
+                code: '0'
+                message: 操作成功
+                traceId: a1b2c3d4e5f60708
+                timestamp: '2026-11-26T15:23:50+08:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /sections/{code}/{studentId}/fields/{fieldCode}/reveal:
+    get:
+      tags: [基本信息]
+      operationId: revealSensitiveField
+      security: []
+      summary: 查看敏感字段明文
+      description: |
+        仅辅导员（`X-User-Role: COU`）或持临时授权的管理员可调用；学生调用返回 `EC-40302`。
+        调用即写审计日志（`arc_change_log.biz_type=REVIEW`），日志中不保存明文。
+
+        当前仅板块一（`code=basic`）有敏感字段（`basic.idCard`），其余板块返回 `EC-40003`。
+        该接口用于页面上的「查看完整」二次点击，列表与导出接口永远只给脱敏值。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - name: fieldCode
+          in: path
+          required: true
+          description: 字段编码，含前缀，如 `basic.idCard`
+          schema:
+            type: string
+            example: basic.idCard
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          fieldCode:
+                            type: string
+                            example: basic.idCard
+                          fieldName:
+                            type: string
+                            example: 身份证号
+                          value:
+                            type: string
+                            example: '330106200401010012'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /sections/{code}/{studentId}/fields/{fieldCode}/confirm:
+    post:
+      tags: [基本信息]
+      operationId: confirmPendingField
+      security: []
+      summary: 确认待确认值
+      description: |
+        学生修改 `STU_CFM` 类字段后，新值暂存于待确认区（`pending_*`），对外仍返回旧值。
+        本接口由该班现任辅导员调用，把待确认值替换为正式值，并把 `confirmStatus` 置为 `APPROVED`。
+
+        非本班辅导员、学生本人调用均返回 `EC-40302`；没有待确认值时返回 `EC-40902`。
+        敏感字段的返回值已脱敏，查看明文仍需走 `reveal`（会写审计）。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - name: fieldCode
+          in: path
+          required: true
+          description: 字段编码，含前缀，如 `basic.phone`
+          schema:
+            type: string
+            example: basic.phone
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 确认成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PendingFieldVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /sections/{code}/{studentId}/fields/{fieldCode}/reject:
+    post:
+      tags: [基本信息]
+      operationId: rejectPendingField
+      security: []
+      summary: 驳回待确认值
+      description: |
+        丢弃待确认区的新值，正式值保持不变，`confirmStatus` 置为 `REJECTED`。
+        权限与状态要求同「确认待确认值」。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - name: fieldCode
+          in: path
+          required: true
+          schema:
+            type: string
+            example: basic.phone
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 驳回成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /review/tasks:
+    get:
+      tags: [审核]
+      operationId: listReviewTasks
+      security: []
+      summary: 待审列表
+      description: |
+        六个板块共用的待审列表。辅导员只能看到自己带班学生的板块（按 `org_class.counselor_user_id` 判定），
+        管理员需持临时授权（`X-Temp-Grant: true`）才能查看；其他角色返回 `EC-40302`，不返回空列表。
+
+        列表只返回任务摘要，打开详情仍走板块自己的 `GET /sections/{code}/{studentId}`。
+      parameters:
+        - name: sectionCode
+          in: query
+          required: false
+          description: 板块编码，小写或大写均可；不传表示六个板块全查
+          schema:
+            type: string
+            example: basic
+        - name: status
+          in: query
+          required: false
+          description: 板块状态，默认 `SUBMITTED`
+          schema:
+            type: string
+            enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+            example: SUBMITTED
+        - name: classId
+          in: query
+          required: false
+          description: 班级编码，如 `RJ2401`；不传表示不限
+          schema:
+            type: string
+            example: RJ2401
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: pageNum
+          in: query
+          required: false
+          description: 页码，从 1 开始，默认 1
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          description: 每页条数，默认 20，最大 100
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReviewTaskPage'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /review/{code}/{studentId}/approve:
+    post:
+      tags: [审核]
+      operationId: approveSection
+      security: []
+      summary: 审核通过
+      description: |
+        仅该班现任辅导员可操作（BR-S03），管理员与学生均返回 `EC-40302`。
+        `SUBMITTED` 转 `APPROVED`，记录审核人与审核时间；状态不是 `SUBMITTED` 返回 `EC-40902`。
+        审核意见可空。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionDTO'
+            example:
+              academicYear: 2025-2026-1
+              comment: 材料齐全，同意通过
+      responses:
+        '200':
+          description: 审核成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /review/{code}/{studentId}/reject:
+    post:
+      tags: [审核]
+      operationId: rejectSection
+      security: []
+      summary: 审核退回
+      description: |
+        仅该班现任辅导员可操作，`SUBMITTED` 转 `RETURNED`。退回理由必填且不少于 10 字，
+        理由对学生可见（写入 `arc_change_log.reason`）；不足 10 字返回 `EC-42203` 并带 `details`。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionDTO'
+            example:
+              academicYear: 2025-2026-1
+              reason: 紧急联系人电话与本人电话重复，请核对后重新提交
+      responses:
+        '200':
+          description: 退回成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
 components:
   securitySchemes:
@@ -474,10 +857,104 @@ components:
         fields:
           type: object
           additionalProperties: true
-          description: 板块字段值，键名与对应 SaveDTO 属性名一致
+          description: |
+            板块字段值，键为字段短名（`basic.studentNo` → `studentNo`）。
+            不可见字段不返回；敏感字段默认脱敏，辅导员可通过 reveal 接口二次查看明文。
+        fieldMeta:
+          type: array
+          description: 字段渲染与权限位，仅含当前角色可见字段，按 sort_no 排序
+          items:
+            $ref: '#/components/schemas/FieldMeta'
         editable:
           type: boolean
-          description: 当前用户是否可编辑该板块
+          description: 当前用户是否有任一可编辑字段
+        completeness:
+          type: number
+          description: 完成度百分比，只统计必填且启用字段（系统推导字段不计入）
+          example: 62.50
+        submitCount:
+          type: integer
+          description: 提交次数
+          example: 0
+        withdrawCount:
+          type: integer
+          description: 撤回次数，全生命周期上限 1
+          example: 0
+        submittedAt:
+          type: string
+          description: 最近一次提交时间
+          example: '2026-11-26 17:20:00'
+        reviewReason:
+          type: string
+          description: |
+            最近一次退回理由（BR-S04：理由对学生可见）。
+            仅当 status 为 RETURNED 时返回；重新提交后不再返回，避免旧意见被当成当前结论。
+          example: 紧急联系人关系未注明，请补充与本人关系后重新提交
+        reviewedAt:
+          type: string
+          description: 最近一次退回时间，与 reviewReason 同时返回
+          example: '2026-11-26 20:39:25'
+
+    FieldMeta:
+      type: object
+      description: 字段渲染与权限位，由 `arc_field_def` 与当前角色、板块状态共同计算
+      required: [key, fieldCode, fieldName, fieldType, required, editable]
+      properties:
+        key:
+          type: string
+          description: 字段短名，与 `fields` 的键一致
+          example: phone
+        fieldCode:
+          type: string
+          example: basic.phone
+        fieldName:
+          type: string
+          example: 手机
+        fieldType:
+          type: string
+          description: 控件类型
+          enum: [TEXT, TEXTAREA, NUMBER, DATE, SELECT, MULTI_SELECT, RADIO, CHECKBOX, FILE]
+        required:
+          type: boolean
+          description: 提交时是否必填
+        source:
+          type: string
+          description: 值来源，前端据此展示「由学校维护」等提示
+          enum: [SIS, COU, STU, STU_CFM, SYS, IMP]
+        options:
+          type: array
+          description: 枚举选项；非枚举字段不返回
+          items:
+            $ref: '#/components/schemas/FieldOption'
+        sensitive:
+          type: integer
+          description: 0 普通 / 1 脱敏展示 / 2 仅辅导员可查看完整值
+          example: 1
+        editable:
+          type: boolean
+          description: 当前角色在当次请求下是否可写
+        masked:
+          type: boolean
+          description: 本次返回的值是否已脱敏
+        pendingConfirm:
+          type: boolean
+          description: 是否存在待辅导员确认的值（BR-F06）
+        pendingValue:
+          description: 待确认值，已按角色脱敏
+          nullable: true
+
+    FieldOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+          description: 存库值
+          example: M
+        label:
+          type: string
+          description: 展示文案
+          example: 男
 
     ProfileStatus:
       type: string
@@ -509,38 +986,29 @@ components:
 
     BasicSectionSaveDTO:
       type: object
-      description: 基本信息保存请求，对应 `BasicSectionSaveDTO`
-      required: [academicYear, name, studentNo]
+      description: |
+        基本信息保存请求，对应 `BasicSectionSaveDTO`。
+        字段清单不在契约里逐个声明，以 `arc_field_def` 中 `section_code=BASIC` 的 16 条记录为准；
+        这样字段增删只需要改种子数据，不需要同时改 DTO、契约与前端。
+      required: [fields]
       properties:
         academicYear:
           type: string
-          description: 学年，格式 `2025-2026-1`
+          description: 学年，格式 `2025-2026-1`；不传取当前学年
           example: 2025-2026-1
-        name:
-          type: string
-          description: 姓名，2-32 字
-          example: 林清和
-        studentNo:
-          type: string
-          description: 学号
-          example: '2023010101'
-        gender:
-          type: string
-          description: 性别
-          example: 女
-        idCard:
-          type: string
-          description: 身份证号，脱敏后展示
-          example: 3301**********0028
-        phone:
-          type: string
-          description: 手机号，11 位
-          example: '13800001234'
-        email:
-          type: string
-          format: email
-          description: 邮箱
-          example: linqinghe@example.edu.cn
+        fields:
+          type: object
+          description: |
+            字段值，键为字段短名，值为原始 JSON 值（单值或数组）。
+            未出现的键按「不修改」处理；传 `null` 表示清空。
+          additionalProperties: true
+          example:
+            classId: RJ2401
+            phone: '13900005678'
+            email: linqinghe@example.edu.cn
+            emergencyContact: 林建国（父）
+            emergencyPhone: '13900001234'
+            photo: [10231]
 
     AcademicSectionSaveDTO:
       type: object
@@ -673,3 +1141,122 @@ components:
         feedback:
           type: string
           description: 学生反馈
+
+    ReviewTaskVO:
+      type: object
+      description: 待审列表行（一个学生 × 一个板块）
+      properties:
+        profileId:
+          type: integer
+          format: int64
+          description: 板块实例 ID
+          example: 3001
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentName:
+          type: string
+          description: 学生姓名，取自 basic.name
+          example: 林清和
+        classId:
+          type: string
+          description: 班级编码，取自 basic.classId
+          example: RJ2401
+        className:
+          type: string
+          description: 班级名称，取自 org_class
+          example: 软件2401
+        sectionCode:
+          type: string
+          example: BASIC
+        sectionName:
+          type: string
+          example: 基本信息
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        status:
+          type: string
+          enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+          example: SUBMITTED
+        statusLabel:
+          type: string
+          example: 已提交
+        completeness:
+          type: number
+          example: 100.00
+        submitCount:
+          type: integer
+          example: 1
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewerId:
+          type: integer
+          format: int64
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ReviewTaskPage:
+      type: object
+      description: 待审列表分页结果
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewTaskVO'
+        total:
+          type: integer
+          format: int64
+          example: 12
+        pageNum:
+          type: integer
+          format: int64
+          example: 1
+        pageSize:
+          type: integer
+          format: int64
+          example: 20
+
+    ReviewDecisionDTO:
+      type: object
+      description: 审核结论入参
+      properties:
+        academicYear:
+          type: string
+          description: 学年，为空取当前学年
+          example: 2025-2026-1
+        comment:
+          type: string
+          description: 审核意见，通过时可空，最多 255 字
+          maxLength: 255
+          example: 材料齐全，同意通过
+        reason:
+          type: string
+          description: 退回理由，退回时必填且不少于 10 字
+          maxLength: 255
+          example: 紧急联系人电话与本人电话重复，请核对后重新提交
+
+    PendingFieldVO:
+      type: object
+      description: 待确认字段处理结果
+      properties:
+        fieldCode:
+          type: string
+          example: basic.phone
+        fieldName:
+          type: string
+          example: 手机
+        value:
+          description: 处理后的对外值，敏感字段为脱敏值
+          nullable: true
+          example: 139****9000
+        confirmStatus:
+          type: string
+          enum: [APPROVED, REJECTED]
+          example: APPROVED

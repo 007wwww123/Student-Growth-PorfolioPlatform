@@ -44,11 +44,44 @@ export type SectionCode = 'basic' | 'academic' | 'interest' | 'life' | 'career' 
 export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'LOCKED'
 
 /**
+ * 字段渲染与权限位，对应后端 FieldMetaVO。
+ *
+ * 字段清单、控件类型、必填、是否可写全部由服务端按 arc_field_def 计算后下发，
+ * 前端不另写一份字段表，也不要自己推断「哪些字段只读」。
+ */
+export interface FieldMeta {
+  /** 字段短名，与 SectionVO.fields 的键一致 */
+  key: string
+  /** 字段编码，如 basic.studentNo */
+  fieldCode: string
+  /** 界面显示名 */
+  fieldName: string
+  /** TEXT / TEXTAREA / NUMBER / DATE / SELECT / MULTI_SELECT / RADIO / CHECKBOX / FILE */
+  fieldType: string
+  /** 提交时是否必填 */
+  required?: boolean
+  /** 来源：SIS / COU / STU / STU_CFM / SYS / IMP */
+  source?: string
+  /** 枚举选项，非枚举字段为空 */
+  options?: Array<{ value: string; label: string }>
+  /** 敏感级别：0 普通 / 1 脱敏 / 2 仅辅导员可查看完整值 */
+  sensitive?: number
+  /** 当前角色在当前状态下是否可写 */
+  editable?: boolean
+  /** 本次返回的值是否已脱敏 */
+  masked?: boolean
+  /** 是否存在待辅导员确认的值 */
+  pendingConfirm?: boolean
+  /** 待确认值（如有），已按角色脱敏 */
+  pendingValue?: unknown
+}
+
+/**
  * 板块详情。
  *
  * 注意字段结构：外层是公共信封（学生、学年、板块、状态），
  * 板块自身字段放在 fields 里，由后端按 arc_field_def 动态下发，
- * 因此前端表单应按 fields 渲染而不是硬编码表单字段。
+ * 因此前端表单应按 fieldMeta 渲染而不是硬编码表单字段。
  */
 export interface SectionVO {
   studentId: number
@@ -57,6 +90,20 @@ export interface SectionVO {
   sectionName: string
   status: ProfileStatus
   fields: Record<string, unknown>
+  /** 字段渲染与权限位，按 sort_no 排序，仅含当前角色可见的字段 */
+  fieldMeta?: FieldMeta[]
   /** 当前用户是否可编辑该板块 */
   editable: boolean
+  /** 完成度百分比，由服务端按必填字段现算 */
+  completeness?: number
+  /** 提交次数 */
+  submitCount?: number
+  /** 撤回次数 */
+  withdrawCount?: number
+  /** 最近一次提交时间 */
+  submittedAt?: string
+  /** 最近一次退回理由（BR-S04：理由对学生可见），仅 RETURNED 及退回后的 DRAFT 返回 */
+  reviewReason?: string
+  /** 最近一次退回时间，与 reviewReason 同时返回 */
+  reviewedAt?: string
 }
