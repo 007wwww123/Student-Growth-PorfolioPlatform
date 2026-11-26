@@ -43,6 +43,9 @@ export type SectionCode = 'basic' | 'academic' | 'interest' | 'life' | 'career' 
 /** 档案板块状态，与后端 ProfileStatusEnum 一致。 */
 export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'LOCKED'
 
+/** 平台三类角色，与后端 UserRoleEnum 一致。 */
+export type UserRole = 'STU' | 'COU' | 'ADMIN'
+
 /**
  * 字段渲染与权限位，对应后端 FieldMetaVO。
  *
@@ -102,8 +105,61 @@ export interface SectionVO {
   withdrawCount?: number
   /** 最近一次提交时间 */
   submittedAt?: string
-  /** 最近一次退回理由（BR-S04：理由对学生可见），仅 RETURNED 及退回后的 DRAFT 返回 */
+  /** 最近一次退回理由（BR-S04：理由对学生可见），仅在 RETURNED 状态返回 */
   reviewReason?: string
   /** 最近一次退回时间，与 reviewReason 同时返回 */
   reviewedAt?: string
+}
+
+/**
+ * 待审列表行，对应后端 ReviewTaskVO。
+ *
+ * 只带列表需要的字段，打开详情仍走各板块详情接口，
+ * 避免审核模块复制一套字段渲染与权限逻辑。
+ */
+export interface ReviewTask {
+  profileId?: number
+  studentId: number
+  /** 学生姓名，取自基本信息板块 basic.name */
+  studentName?: string
+  classId?: string
+  className?: string
+  /** 板块编码，大写，如 BASIC */
+  sectionCode: string
+  sectionName?: string
+  academicYear: string
+  status: ProfileStatus
+  statusLabel?: string
+  completeness?: number
+  submitCount?: number
+  submittedAt?: string
+  reviewerId?: number
+  reviewedAt?: string
+}
+
+/** 待确认值处理结果，对应后端 PendingFieldVO。 */
+export interface PendingField {
+  fieldCode: string
+  fieldName?: string
+  /** 处理后的对外值，敏感字段为脱敏值 */
+  value?: unknown
+  /** APPROVED / REJECTED */
+  confirmStatus?: string
+}
+
+/** 敏感字段明文，对应后端 SensitiveFieldVO。每次调用都会写审计日志。 */
+export interface SensitiveField {
+  fieldCode: string
+  fieldName?: string
+  value: string
+}
+
+/** 审核结论入参，对应后端 ReviewDecisionDTO。 */
+export interface ReviewDecision {
+  /** 学年，为空取当前学年；注意审核接口从请求体读学年，不是 query */
+  academicYear?: string
+  /** 审核意见，通过时可空，最长 255 */
+  comment?: string
+  /** 退回理由，退回时必填且不少于 10 字 */
+  reason?: string
 }

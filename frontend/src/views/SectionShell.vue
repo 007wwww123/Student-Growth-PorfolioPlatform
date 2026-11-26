@@ -1,62 +1,45 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import FieldList from '@/components/FieldList.vue'
+import PendingHint from '@/components/PendingHint.vue'
 import { isApiError, type ApiError } from '@/api/http'
-import { fetchSection, saveSection, submitSection } from '@/api/sections'
-import type { FieldMeta, SectionCode, SectionVO } from '@/api/types'
+import { getIdentity } from '@/api/identity'
+import { fetchSection, saveSection, submitSection, withdrawSection } from '@/api/sections'
+import type { SectionCode, SectionVO } from '@/api/types'
+import { formatValue, formFromFields, renderFieldsOf, type PendingItem } from '@/fieldMeta'
 import { DEMO_ACADEMIC_YEAR, DEMO_STUDENT_ID, SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
 
 /**
  * 板块页面的公共外壳。
  *
- * 六个板块的交互完全一致（查详情 → 改草稿 → 提交），差异只在字段清单。
+ * 六个板块的交互完全一致（查详情 → 改草稿 → 提交 → 必要时撤回），差异只在字段清单。
  * 字段清单以服务端下发的 fieldMeta 为准（arc_field_def 是唯一来源，含控件类型、
- * 枚举选项与「当前角色能不能写」），sectionMeta 只在接口未提供 fieldMeta 时兜底；
- * 各板块视图只负责传入 code，板块特有交互（附件、证书列表等）在各自视图内扩展。
+ * 枚举选项与「当前角色能不能写」），sectionMeta 只在接口未提供 fieldMeta 时兜底。
  */
 const props = defineProps<{ code: SectionCode }>()
 
-/** 表单控件类型：比 sectionMeta 的 FieldType 多出 select（枚举）与 file（附件）。 */
-type ControlType = 'text' | 'textarea' | 'number' | 'date' | 'tags' | 'select' | 'file'
-
-/** 渲染用的字段描述：字段定义 + 权限位。 */
-interface RenderField {
-  key: string
-  label: string
-  type: ControlType
-  editable: boolean
-  required: boolean
-  maxLength?: number
-  options?: Array<{ value: string; label: string }>
-  /** 只读原因，展示在控件下方 */
-  lockHint?: string
-}
-
-/** 后端 FieldMetaVO.fieldType 到控件的映射。 */
-const CONTROL_BY_FIELD_TYPE: Record<string, ControlType> = {
-  TEXT: 'text',
-  TEXTAREA: 'textarea',
-  NUMBER: 'number',
-  DATE: 'date',
-  SELECT: 'select',
-  RADIO: 'select',
-  MULTI_SELECT: 'tags',
-  CHECKBOX: 'tags',
-  FILE: 'file',
-}
-
 const meta = computed(() => SECTION_MAP[props.code])
 const section = ref<SectionVO | null>(null)
-const form = reactive<Record<string, string>>({})
+const form = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
+const withdrawing = ref(false)
+const confirmingWithdraw = ref(false)
 const error = ref<ApiError | null>(null)
 const notice = ref('')
+
+const identity = getIdentity()
 
 const editable = computed(() => section.value?.editable ?? true)
 const statusLabel = computed(() =>
   section.value ? (STATUS_LABELS[section.value.status] ?? section.value.status) : '',
 )
+
+/** 学生本人才有撤回入口；辅导员与管理员进入时只看得到只读内容。 */
+const isStudent = computed(() => identity.role === 'STU')
+const canWithdraw = computed(() => isStudent.value && section.value?.status === 'SUBMITTED')
+const withdrawUsed = computed(() => (section.value?.withdrawCount ?? 0) >= 1)
 
 /**
  * 退回提示（BR-S04：退回理由必须让学生看见）。
@@ -77,43 +60,23 @@ const completenessText = computed(
   () => `${Number(section.value?.completeness ?? 0).toFixed(2).replace(/\.00$/, '')}%`,
 )
 
+const fields = computed(() => renderFieldsOf(section.value?.fieldMeta, meta.value.fields))
+
 /**
- * 表单字段：优先用服务端 fieldMeta（含权限位与枚举选项），
- * 接口尚未提供时回落到 sectionMeta 的骨架配置。
+ * 学校维护、需辅导员确认的字段被学生改过之后，新值先进入待确认区。
+ * 学生端只展示，不能自行确认（确认权限在后端限定为该班辅导员）。
  */
-const formFields = computed<RenderField[]>(() => {
+const pendingItems = computed<PendingItem[]>(() => {
   const metas = section.value?.fieldMeta ?? []
-  if (metas.length > 0) {
-    return metas.map((item) => ({
+  return metas
+    .filter((item) => item.pendingConfirm === true)
+    .map((item) => ({
       key: item.key,
       label: item.fieldName,
-      type: CONTROL_BY_FIELD_TYPE[item.fieldType] ?? 'text',
-      editable: item.editable === true,
-      required: item.required === true,
-      options: item.options,
-      lockHint: item.editable === true ? undefined : lockHintOf(item),
+      current: formatValue(section.value?.fields?.[item.key]),
+      pending: formatValue(item.pendingValue),
     }))
-  }
-  return meta.value.fields.map((item) => ({
-    key: item.key,
-    label: item.label,
-    type: item.type,
-    editable: true,
-    required: false,
-    maxLength: item.maxLength,
-  }))
 })
-
-/** 只读原因：按来源与敏感级别给出可读提示，不把权限码直接抛给用户。 */
-function lockHintOf(item: FieldMeta): string {
-  if (item.source === 'SIS' || item.source === 'SYS') {
-    return '由学校维护，不可修改'
-  }
-  if (item.sensitive != null && item.sensitive >= 2) {
-    return '无权限查看完整内容'
-  }
-  return '当前状态不可修改'
-}
 
 /** 字段级错误：field -> 提示文案，用于在输入框下方就地提示。 */
 const fieldHints = computed<Record<string, string>>(() => {
@@ -126,34 +89,15 @@ const fieldHints = computed<Record<string, string>>(() => {
   return hints
 })
 
-function inputType(type: string): string {
-  if (type === 'number') return 'number'
-  if (type === 'date') return 'date'
-  return 'text'
-}
-
-function resetForm(fields: Record<string, unknown>): void {
-  for (const key of Object.keys(form)) {
-    delete form[key]
-  }
-  for (const field of formFields.value) {
-    const raw = fields[field.key]
-    if (Array.isArray(raw)) {
-      form[field.key] = raw.join('、')
-    } else {
-      form[field.key] = raw == null ? '' : String(raw)
-    }
-  }
-}
-
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
   notice.value = ''
+  confirmingWithdraw.value = false
   try {
     const data = await fetchSection(props.code, DEMO_STUDENT_ID, DEMO_ACADEMIC_YEAR)
     section.value = data
-    resetForm(data.fields ?? {})
+    form.value = formFromFields(data.fields, renderFieldsOf(data.fieldMeta))
   } catch (e) {
     section.value = null
     error.value = isApiError(e) ? e : null
@@ -171,12 +115,12 @@ async function load(): Promise<void> {
  */
 function buildPayload(): Record<string, unknown> | null {
   const values: Record<string, unknown> = {}
-  for (const field of formFields.value) {
+  for (const field of fields.value) {
     // 附件上传尚未开放，不提交，避免把已有附件清空
     if (!field.editable || field.type === 'file') {
       continue
     }
-    const raw = (form[field.key] ?? '').trim()
+    const raw = (form.value[field.key] ?? '').trim()
     if (field.type === 'tags') {
       values[field.key] = raw === ''
         ? null
@@ -235,6 +179,38 @@ async function onSubmit(): Promise<void> {
   }
 }
 
+/**
+ * 撤回提交（S-1-09）。
+ *
+ * 全生命周期只允许一次：按钮在有撤回记录后保持禁用，且后端再校验一次（EC-40903）。
+ * 前端禁用只是减少一次必然失败的请求，不作为权限判断。
+ */
+async function onWithdraw(): Promise<void> {
+  if (withdrawUsed.value) {
+    notice.value = '撤回次数已用完，每个板块只能撤回一次'
+    confirmingWithdraw.value = false
+    return
+  }
+  withdrawing.value = true
+  error.value = null
+  notice.value = ''
+  try {
+    await withdrawSection(
+      props.code,
+      DEMO_STUDENT_ID,
+      section.value?.academicYear ?? DEMO_ACADEMIC_YEAR,
+    )
+    notice.value = '已撤回，可继续修改后重新提交'
+    confirmingWithdraw.value = false
+    await load()
+  } catch (e) {
+    error.value = isApiError(e) ? e : null
+    confirmingWithdraw.value = false
+  } finally {
+    withdrawing.value = false
+  }
+}
+
 watch(() => props.code, load, { immediate: true })
 </script>
 
@@ -275,77 +251,78 @@ watch(() => props.code, load, { immediate: true })
           {{ detail.field ?? '字段' }}：{{ detail.message ?? detail.reason ?? '校验未通过' }}
         </li>
       </ul>
+      <p v-if="error.code === 'EC-40903'" class="alert__tip">
+        撤回只有一次机会，已撤回过的板块不能再撤回。
+      </p>
       <p v-if="error.traceId" class="alert__trace">traceId：{{ error.traceId }}</p>
     </div>
 
     <p v-if="loading" class="board__loading">加载中…</p>
 
-    <form v-else class="board__form" @submit.prevent="onSave">
-      <div v-for="field in formFields" :key="field.key" class="field">
-        <label class="field__label" :for="`field-${field.key}`">
-          {{ field.label }}<span v-if="field.required" class="field__required">*</span>
-        </label>
-        <select
-          v-if="field.type === 'select'"
-          :id="`field-${field.key}`"
-          v-model="form[field.key]"
-          class="field__control"
-          :class="{ 'has-error': fieldHints[field.key] }"
-          :disabled="!field.editable"
-        >
-          <option value="">请选择</option>
-          <option v-for="option in field.options" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <textarea
-          v-else-if="field.type === 'textarea'"
-          :id="`field-${field.key}`"
-          v-model="form[field.key]"
-          class="field__control"
-          :class="{ 'has-error': fieldHints[field.key] }"
-          rows="3"
-          :disabled="!field.editable"
-        />
-        <input
-          v-else
-          :id="`field-${field.key}`"
-          v-model="form[field.key]"
-          class="field__control"
-          :class="{ 'has-error': fieldHints[field.key] }"
-          :type="inputType(field.type)"
-          :maxlength="field.maxLength"
-          :disabled="!field.editable"
-        />
-        <p v-if="fieldHints[field.key]" class="field__error">{{ fieldHints[field.key] }}</p>
-        <p v-else-if="field.type === 'file'" class="field__hint">
-          附件上传暂未开放，请在学校系统中维护
-        </p>
-        <p v-else-if="field.lockHint" class="field__hint">{{ field.lockHint }}</p>
-        <p v-else-if="field.type === 'tags'" class="field__hint">多个值用逗号分隔</p>
-      </div>
+    <template v-else-if="section">
+      <!-- 待确认区：学生只能看到「等待确认」，确认动作属于辅导员 -->
+      <PendingHint :items="pendingItems" />
 
-      <div class="board__actions">
-        <button type="submit" class="btn btn--primary" :disabled="!editable || saving">
-          {{ saving ? '保存中…' : '保存草稿' }}
-        </button>
-        <button
-          type="button"
-          class="btn"
-          :disabled="!editable || submitting"
-          @click="onSubmit"
-        >
-          {{ submitting ? '提交中…' : '提交板块' }}
-        </button>
-        <button type="button" class="btn btn--ghost" @click="load">重新加载</button>
-        <span v-if="!editable" class="board__lock">当前状态不可编辑</span>
-      </div>
-    </form>
+      <form class="board__form" @submit.prevent="onSave">
+        <FieldList :fields="fields" :form="form" :errors="fieldHints" />
 
-    <details v-if="section" class="raw">
-      <summary>查看接口原始返回（联调用）</summary>
-      <pre>{{ JSON.stringify(section, null, 2) }}</pre>
-    </details>
+        <div class="board__actions">
+          <!-- 可编辑：草稿 / 已退回 -->
+          <template v-if="editable">
+            <button type="submit" class="btn btn--primary" :disabled="saving">
+              {{ saving ? '保存中…' : '保存草稿' }}
+            </button>
+            <button type="button" class="btn" :disabled="submitting" @click="onSubmit">
+              {{ submitting ? '提交中…' : '提交板块' }}
+            </button>
+          </template>
+
+          <!-- 已提交：学生可撤回一次 -->
+          <template v-else-if="canWithdraw">
+            <button
+              type="button"
+              class="btn btn--danger-ghost"
+              :disabled="withdrawing || withdrawUsed"
+              @click="confirmingWithdraw = true"
+            >
+              {{ withdrawing ? '撤回中…' : '撤回提交' }}
+            </button>
+            <span class="board__lock">
+              审核前可撤回一次（已用 {{ section.withdrawCount ?? 0 }}/1）
+            </span>
+          </template>
+
+          <span v-else class="board__lock">当前状态不可编辑</span>
+
+          <button type="button" class="btn btn--ghost" @click="load">重新加载</button>
+        </div>
+
+        <!-- 撤回二次确认：说明后果与次数限制，避免误点 -->
+        <div v-if="confirmingWithdraw" class="confirm">
+          <p class="confirm__text">
+            撤回后该板块回到「草稿」状态，需要重新提交；每个板块只能撤回一次，确定撤回吗？
+          </p>
+          <div class="confirm__actions">
+            <button
+              type="button"
+              class="btn"
+              :disabled="withdrawing"
+              @click="confirmingWithdraw = false"
+            >
+              取消
+            </button>
+            <button type="button" class="btn btn--danger" :disabled="withdrawing" @click="onWithdraw">
+              {{ withdrawing ? '撤回中…' : '确认撤回' }}
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <details class="raw">
+        <summary>查看接口原始返回（联调用）</summary>
+        <pre>{{ JSON.stringify(section, null, 2) }}</pre>
+      </details>
+    </template>
   </section>
 </template>
 
@@ -386,11 +363,6 @@ watch(() => props.code, load, { immediate: true })
   font-size: 12px;
 }
 
-.field__required {
-  margin-left: 2px;
-  color: var(--color-danger);
-}
-
 .alert--return {
   border: 1px solid #fed7aa;
   background: #fff7ed;
@@ -429,57 +401,6 @@ watch(() => props.code, load, { immediate: true })
   box-shadow: var(--shadow);
 }
 
-.field {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  align-items: start;
-  gap: 8px 12px;
-}
-
-.field__label {
-  padding-top: 7px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-.field__control {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: #fff;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.field__control:focus {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
-}
-
-.field__control:disabled {
-  background: #f9fafb;
-  color: var(--color-text-muted);
-}
-
-.field__control.has-error {
-  border-color: #fca5a5;
-}
-
-.field__error {
-  grid-column: 2;
-  margin: 0;
-  color: var(--color-danger);
-  font-size: 12px;
-}
-
-.field__hint {
-  grid-column: 2;
-  margin: 0;
-  color: #9ca3af;
-  font-size: 12px;
-}
-
 .board__actions {
   display: flex;
   align-items: center;
@@ -491,6 +412,25 @@ watch(() => props.code, load, { immediate: true })
 .board__lock {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.confirm {
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: var(--color-danger-bg);
+}
+
+.confirm__text {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.confirm__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .btn {
@@ -520,6 +460,17 @@ watch(() => props.code, load, { immediate: true })
 .btn--primary:hover:not(:disabled) {
   border-color: var(--color-primary-dark);
   background: var(--color-primary-dark);
+}
+
+.btn--danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.btn--danger-ghost {
+  border-color: #fecaca;
+  color: var(--color-danger);
 }
 
 .btn--ghost {

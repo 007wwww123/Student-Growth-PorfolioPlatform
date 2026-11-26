@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import { SUCCESS_CODE } from './constants'
+import { getIdentity } from './identity'
 import type { FieldErrorDetail, Result } from './types'
 
 export { SUCCESS_CODE }
@@ -45,6 +46,23 @@ const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
+})
+
+/**
+ * 附带演示身份。
+ *
+ * <p>后端当前从请求头识别用户（骨架期占位），这里把界面上选中的身份带过去，
+ * 使字段级权限与审核权限可以被真实检验。接入登录后改为 {@code Authorization: Bearer}，
+ * 本拦截器随之删除。</p>
+ */
+instance.interceptors.request.use((config) => {
+  const identity = getIdentity()
+  config.headers.set('X-User-Id', String(identity.userId))
+  config.headers.set('X-User-Role', identity.role)
+  if (identity.tempGrant) {
+    config.headers.set('X-Temp-Grant', 'true')
+  }
+  return config
 })
 
 /**
