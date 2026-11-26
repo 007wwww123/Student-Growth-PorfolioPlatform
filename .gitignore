@@ -28,3 +28,21 @@ application-local.yaml
 
 ### 其他 ###
 *.tmp
+
+### 前端 frontend/ ###
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+*.tsbuildinfo
+
+### 前端本地环境变量（.env.development 需提交，.env.local 仅本机使用）###
+.env.local
+.env.*.local
+
+### 前端包管理器日志 ###
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
