@@ -1,0 +1,30 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### Eclipse / VSCode ###
+.classpath
+.project
+.settings/
+.vscode/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### 日志与本地配置 ###
+logs/
+*.log
+application-local.yml
+application-local.yaml
+
+### 其他 ###
+*.tmp
