@@ -32,6 +32,15 @@ public class ChangeLogService {
     /** 操作来源：页面。 */
     public static final String SOURCE_WEB = "WEB";
 
+    /** 操作来源：外部系统同步（学工/教务主数据）。 */
+    public static final String SOURCE_IMPORT = "IMPORT";
+
+    /** 系统操作人标识：0 表示非人工触发，便于与真实用户区分。 */
+    public static final long SYSTEM_OPERATOR_ID = 0L;
+
+    /** 系统操作人角色。 */
+    public static final String ROLE_SYSTEM = "SYS";
+
     private final ArcChangeLogMapper changeLogMapper;
 
     public ChangeLogService(ArcChangeLogMapper changeLogMapper) {
@@ -53,6 +62,24 @@ public class ChangeLogService {
     public void record(ArcProfile profile, String bizType, String fieldCode, String oldValue,
                        String newValue, String fromStatus, String toStatus, String reason) {
         CurrentUser user = UserContext.get();
+        insert(profile, bizType, fieldCode, oldValue, newValue, fromStatus, toStatus, reason,
+                SOURCE_WEB, user.userId(), user.role().name());
+    }
+
+    /**
+     * 写一条「外部系统同步」日志。
+     *
+     * <p>同步由学工主数据触发，不是某个用户点的按钮，因此操作人固定记 0 / SYS、来源记 IMPORT；
+     * 否则日志里会出现「学生自己改了学号」这种误导性记录。</p>
+     */
+    public void recordImport(ArcProfile profile, String fieldCode, String oldValue, String newValue) {
+        insert(profile, BIZ_FIELD_EDIT, fieldCode, oldValue, newValue, null, null,
+                "学工系统同步", SOURCE_IMPORT, SYSTEM_OPERATOR_ID, ROLE_SYSTEM);
+    }
+
+    private void insert(ArcProfile profile, String bizType, String fieldCode, String oldValue,
+                        String newValue, String fromStatus, String toStatus, String reason,
+                        String source, Long operatorId, String operatorRole) {
         ArcChangeLog changeLog = new ArcChangeLog();
         changeLog.setProfileId(profile.getId());
         changeLog.setStudentId(profile.getStudentId());
@@ -63,9 +90,9 @@ public class ChangeLogService {
         changeLog.setNewValue(newValue);
         changeLog.setFromStatus(fromStatus);
         changeLog.setToStatus(toStatus);
-        changeLog.setOperatorId(user.userId());
-        changeLog.setOperatorRole(user.role().name());
-        changeLog.setSource(SOURCE_WEB);
+        changeLog.setOperatorId(operatorId);
+        changeLog.setOperatorRole(operatorRole);
+        changeLog.setSource(source);
         changeLog.setReason(reason);
         changeLogMapper.insert(changeLog);
     }

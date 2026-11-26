@@ -3,13 +3,13 @@ package com.college.growth.common.org;
 /**
  * 组织域常量。
  *
- * <p>学生的班级在 SIS 接入前暂存于基本信息板块的 {@code basic.classId} 字段，
- * 因此这里是「取学生班级」的唯一入口标识；接入教务后改为查学生主数据，
- * 只改 {@code StudentClassService} 一处。</p>
+ * <p>学生的班级以学生主数据 {@code stu_student.class_code} 为准；
+ * {@link #CLASS_FIELD_CODE} 只作为主数据接入前的存量回退通道。
+ * 取班级统一走 {@code StudentClassService}，不要各自查字段值。</p>
  */
 public final class OrgConstants {
 
-    /** 班级字段编码：basic.classId，值可以是班级编码或班级名称。 */
+    /** 班级字段编码：basic.classId，仅在学生主数据缺失班级时回退使用。 */
     public static final String CLASS_FIELD_CODE = "basic.classId";
 
     private OrgConstants() {

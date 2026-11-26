@@ -4,9 +4,10 @@
 <!--
   审核列表查询：六个板块共用。
 
-  学生的班级目前存在基本信息板块的 basic.classId 字段里，因此这里用 EXISTS 关联
-  「同学生同学年的 BASIC 板块」再取班级；接入教务学生主数据后，把这两段 EXISTS
-  换成 org_student 关联即可，接口与上层逻辑不变。
+  班级取值的优先级与 StudentClassService 保持一致，避免「列表查得到、点进去无权审」：
+    1) 学生主数据 stu_student.class_code（首选）；
+    2) 基本信息板块 basic.classId 字段值（主数据接入前的存量档案回退）。
+  两段 EXISTS 都用 COALESCE 表达这个优先级；历史档案补齐后删掉回退分支即可。
 -->
 <mapper namespace="com.college.growth.review.mapper.ReviewTaskMapper">
 
@@ -27,24 +28,24 @@
             AND EXISTS (
                 SELECT 1
                 FROM arc_profile bp
-                JOIN arc_profile_item ci ON ci.profile_id = bp.id
+                LEFT JOIN arc_profile_item ci ON ci.profile_id = bp.id AND ci.field_code = 'basic.classId'
+                LEFT JOIN stu_student s ON s.id = bp.student_id
                 WHERE bp.student_id = p.student_id
                   AND bp.academic_year = p.academic_year
                   AND bp.section_code = 'BASIC'
-                  AND ci.field_code = 'basic.classId'
-                  AND ci.value_text = #{classId}
+                  AND COALESCE(NULLIF(s.class_code, ''), ci.value_text) = #{classId}
             )
         </if>
         <if test="counselorId != null">
             AND EXISTS (
                 SELECT 1
                 FROM arc_profile bp
-                JOIN arc_profile_item ci ON ci.profile_id = bp.id
-                JOIN org_class c ON c.class_code = ci.value_text
+                LEFT JOIN arc_profile_item ci ON ci.profile_id = bp.id AND ci.field_code = 'basic.classId'
+                LEFT JOIN stu_student s ON s.id = bp.student_id
+                JOIN org_class c ON c.class_code = COALESCE(NULLIF(s.class_code, ''), ci.value_text)
                 WHERE bp.student_id = p.student_id
                   AND bp.academic_year = p.academic_year
                   AND bp.section_code = 'BASIC'
-                  AND ci.field_code = 'basic.classId'
                   AND c.counselor_user_id = #{counselorId}
             )
         </if>

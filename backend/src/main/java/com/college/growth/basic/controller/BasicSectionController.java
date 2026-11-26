@@ -92,4 +92,15 @@ public class BasicSectionController {
                                            @RequestParam(required = false) String academicYear) {
         return Result.success(basicSectionService.reveal(studentId, fieldCode, academicYear));
     }
+
+    /**
+     * 从学工主数据重新同步基础字段：仅本班辅导员或持授权管理员。
+     *
+     * <p>保存与提交时会自动补齐空字段；本接口用于学工系统改正数据后强制覆盖已有值。</p>
+     */
+    @PostMapping("/{studentId}/sync-student")
+    public Result<Integer> syncStudent(@PathVariable Long studentId,
+                                       @RequestParam(required = false) String academicYear) {
+        return Result.success(basicSectionService.syncStudent(studentId, academicYear));
+    }
 }

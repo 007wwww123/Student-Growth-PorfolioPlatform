@@ -30,6 +30,12 @@ public class AuditLogService {
     /** 业务类型：待确认字段处理。 */
     public static final String BIZ_FIELD_CONFIRM = "FIELD_CONFIRM";
 
+    /** 业务类型：外部系统数据同步。 */
+    public static final String BIZ_IMPORT = "IMPORT";
+
+    /** 动作：从学生主数据重新同步。 */
+    public static final String ACTION_SYNC = "SYNC";
+
     /** 目标类型：板块实例。 */
     public static final String TARGET_PROFILE = "PROFILE";
 
