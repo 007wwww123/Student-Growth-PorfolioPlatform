@@ -7,7 +7,7 @@ info:
     name: 内部项目，未授予开源许可
   description: |
     学生成长档案平台后端接口契约。依据《一期建设总流程与可执行方案》第 9.1 节工程约定与
-    第 6.1 节错误响应结构编写，代码实现见 `src/main/java/com/college/growth`。
+    第 6.1 节错误响应结构编写，代码实现见 `backend/src/main/java/com/college/growth`。
 
     ## 一、统一响应体
 
@@ -181,7 +181,7 @@ paths:
         仅 `DRAFT` / `RETURNED` 状态允许写入，其余状态返回 `EC-40902`。
 
         请求体为对应板块的 SaveDTO（`oneOf` 六个定义），字段名必须与
-        `src/main/java/com/college/growth/{板块}/dto` 中的属性名一致。
+        `backend/src/main/java/com/college/growth/{板块}/dto` 中的属性名一致。
         未传的字段按「不修改」处理，传 `null` 表示清空。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
