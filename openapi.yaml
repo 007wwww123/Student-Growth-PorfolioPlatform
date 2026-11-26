@@ -1,0 +1,675 @@
+openapi: 3.0.3
+
+info:
+  title: 学生成长档案平台 API
+  version: 0.1.0
+  license:
+    name: 内部项目，未授予开源许可
+  description: |
+    学生成长档案平台后端接口契约。依据《一期建设总流程与可执行方案》第 9.1 节工程约定与
+    第 6.1 节错误响应结构编写，代码实现见 `src/main/java/com/college/growth`。
+
+    ## 一、统一响应体
+
+    所有接口一律返回 `Result` 包装，HTTP 状态码只表达传输层结果，业务原因由 `code` 表达：
+
+    ```json
+    {
+      "code": "0",
+      "message": "操作成功",
+      "traceId": "a1b2c3d4e5f60708",
+      "timestamp": "2026-11-26T15:23:50+08:00",
+      "data": {},
+      "details": []
+    }
+    ```
+
+    - `code` 为 `"0"` 表示成功，其余为 `EC-xxxxx` 业务码；
+    - `data` 仅在成功且存在业务数据时出现（后端按 `non_null` 序列化）；
+    - `details` 仅在字段校验失败（`EC-42201`）时出现，供前端逐字段提示；
+    - `traceId` 用于串联服务端日志，用户报障时请一并提供。
+
+    ## 二、板块数据结构：信封 + fields
+
+    六大板块共用「公共信封 + 动态字段」结构，板块自身字段放在 `fields` 内：
+
+    ```json
+    {
+      "studentId": 1001,
+      "academicYear": "2025-2026-1",
+      "sectionCode": "BASIC",
+      "sectionName": "基本信息",
+      "status": "DRAFT",
+      "fields": { "name": "林清和", "studentNo": "2023010101" },
+      "editable": true
+    }
+    ```
+
+    这样后端可按 `arc_field_def` 动态下发字段（需求文档 4.1），前端表单跟着 `fields` 渲染，
+    新增字段不需要改动页面结构。**不要**把板块字段平铺到信封外层，也**不要**再套一层
+    `{ basic: {...}, academic: {...} }`。
+
+    ## 三、路径与命名
+
+    - 接口前缀为后端 `server.servlet.context-path`，即 `/api`，本文件中 `servers.url` 已包含；
+    - 路径中的板块编码**用小写**（`basic` / `academic` / `interest` / `life` / `career` /
+      `mentor`），与 `SectionCodeEnum.code` 一致；
+    - 响应体中的 `sectionCode` **用大写**（`BASIC` 等），与 `SectionCodeEnum.name` 一致；
+    - 请求与响应字段一律 lowerCamelCase，与各板块 `SaveDTO` / `VO` 属性名一致。
+
+    ## 四、档案状态
+
+    `DRAFT` 草稿 → `SUBMITTED` 已提交 → `APPROVED` 已通过 → `LOCKED` 已归档，
+    `SUBMITTED` 可被退回为 `RETURNED`，`RETURNED` 可再次提交。
+    **仅 `DRAFT` 与 `RETURNED` 允许保存与提交**，其余状态返回 `EC-40902`。
+
+    ## 五、错误码
+
+    `EC-` 加五位数字，前三位表示类别，后两位为序号。
+
+    | 业务码 | HTTP | 含义 | 前端建议处理 |
+    |---|---|---|---|
+    | `EC-40001` | 400 | 请求格式不正确 | 提示刷新重试 |
+    | `EC-40002` | 400 | 缺少必要参数 | 检查必传参数 |
+    | `EC-40003` | 400 | 参数超出允许范围 | 检查板块编码、ID 格式 |
+    | `EC-40101` | 401 | 登录已失效 | 跳转登录 |
+    | `EC-40102` | 401 | 登录已过期 | 跳转登录 |
+    | `EC-40301` | 403 | 字段由学校维护，不可修改 | 置灰该字段 |
+    | `EC-40302` | 403 | 无权访问该学生档案 | 提示无权限 |
+    | `EC-40902` | 409 | 当前状态不允许该操作 | 刷新详情后重试 |
+    | `EC-40903` | 409 | 撤回次数已用完 | 提示不可撤回 |
+    | `EC-42201` | 422 | 字段校验未通过 | 按 `details` 逐字段提示 |
+    | `EC-42202` | 422 | 必填内容未填写 | 按 `details` 定位字段 |
+    | `EC-42203` | 422 | 退回理由不少于 10 字 | 提示补足字数 |
+    | `EC-50000` | 501 | 该功能尚未实现 | 骨架期占位，提示稍后再试 |
+    | `EC-50001` | 500 | 系统繁忙 | 提示稍后重试，附 traceId |
+    | `EC-50002` | 500 | 文件服务不可用 | 提示稍后重试 |
+    | `EC-50003` | 500 | 档案生成失败 | 联系管理员 |
+
+    ## 六、当前实现状态
+
+    六个板块的路由、DTO、VO 已就位，Service 层为占位实现，返回 `EC-50000`（HTTP 501）。
+    本契约即前后端并行开发的依据：前端按本文件用 MSW 造 mock，后端按本文件补实现。
+
+    ## 七、鉴权（预留）
+
+    鉴权尚未接入。接入后统一使用 `Authorization: Bearer <token>`，
+    过期返回 `EC-40102`，前端拦截后跳转登录。该 Header 现在即可在请求封装中预留。
+
+servers:
+  - url: http://localhost:8080/api
+    description: 本地后端（context-path 为 /api）
+
+tags:
+  - name: 基本信息
+    description: 学籍与联系方式，板块编码 `basic`，字段前缀 `basic.`
+  - name: 学业发展
+    description: 学业目标、优势科目、能力自评，板块编码 `academic`，字段前缀 `academic.`
+  - name: 兴趣特长
+    description: 兴趣方向、特长技能、理想状态，板块编码 `interest`，字段前缀 `interest.`
+  - name: 生活心理
+    description: 组织任职、作息运动、压力与情绪，板块编码 `life`，字段前缀 `life.`
+  - name: 职业规划
+    description: 就业意向、目标行业岗位、实施计划，板块编码 `career`，字段前缀 `career.`
+  - name: 导师寄语
+    description: 导师谈话记录与建议，板块编码 `mentor`，字段前缀 `mentor.`；学生只读
+  - name: 平台公共
+    description: 统一响应结构与错误码
+
+paths:
+  /sections/{code}/{studentId}:
+    get:
+      tags: [平台公共]
+      operationId: getSectionDetail
+      security: []
+      summary: 查询板块详情
+      description: |
+        返回该学生指定学年该板块的详情，`fields` 为该板块已保存的字段值，
+        `editable` 表示当前用户是否可编辑。字段是否可见、是否可编辑最终由
+        `arc_field_def` 与档案状态共同决定。
+
+        六个板块共用本接口，路径中的 `code` 决定板块。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SectionDetailResponse'
+              examples:
+                basic:
+                  summary: 基本信息
+                  value:
+                    code: '0'
+                    message: 操作成功
+                    traceId: a1b2c3d4e5f60708
+                    timestamp: '2026-11-26T15:23:50+08:00'
+                    data:
+                      studentId: 1001
+                      academicYear: 2025-2026-1
+                      sectionCode: BASIC
+                      sectionName: 基本信息
+                      status: DRAFT
+                      fields:
+                        name: 林清和
+                        studentNo: '2023010101'
+                        gender: 女
+                        idCard: 3301**********0028
+                        phone: '13800001234'
+                        email: linqinghe@example.edu.cn
+                      editable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    put:
+      tags: [平台公共]
+      operationId: saveSectionDraft
+      security: []
+      summary: 保存板块草稿
+      description: |
+        逐字段校验后写入，把板块保存为 `DRAFT`。
+        仅 `DRAFT` / `RETURNED` 状态允许写入，其余状态返回 `EC-40902`。
+
+        请求体为对应板块的 SaveDTO（`oneOf` 六个定义），字段名必须与
+        `src/main/java/com/college/growth/{板块}/dto` 中的属性名一致。
+        未传的字段按「不修改」处理，传 `null` 表示清空。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/BasicSectionSaveDTO'
+                - $ref: '#/components/schemas/AcademicSectionSaveDTO'
+                - $ref: '#/components/schemas/InterestSectionSaveDTO'
+                - $ref: '#/components/schemas/LifeSectionSaveDTO'
+                - $ref: '#/components/schemas/CareerSectionSaveDTO'
+                - $ref: '#/components/schemas/MentorSectionSaveDTO'
+            examples:
+              basic:
+                summary: 基本信息（code=basic）
+                value:
+                  academicYear: 2025-2026-1
+                  name: 林清和
+                  studentNo: '2023010101'
+                  gender: 女
+                  idCard: 3301**********0028
+                  phone: '13800001234'
+                  email: linqinghe@example.edu.cn
+              academic:
+                summary: 学业发展（code=academic）
+                value:
+                  academicYear: 2025-2026-1
+                  goalShort: 本学期绩点进入专业前 15%
+                  goalLong: 争取保研，进入数据分析方向
+                  strongSubjects: [数据结构, 概率论]
+                  weakSubjects: [大学物理]
+                  abilityNote: 编程实现能力较强，理论推导需要加强。
+      responses:
+        '200':
+          description: 保存成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+              example:
+                code: '0'
+                message: 操作成功
+                traceId: a1b2c3d4e5f60708
+                timestamp: '2026-11-26T15:23:50+08:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /sections/{code}/{studentId}/submit:
+    post:
+      tags: [平台公共]
+      operationId: submitSection
+      security: []
+      summary: 提交板块
+      description: |
+        校验必填字段是否齐全，通过后把板块由 `DRAFT` / `RETURNED` 转为 `SUBMITTED`。
+        学年通过 query 传入（与保存接口不同，保存接口的学年在请求体里）。
+      parameters:
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/StudentId'
+        - name: academicYear
+          in: query
+          required: true
+          description: 学年，格式 `2025-2026-1`
+          schema:
+            type: string
+            example: 2025-2026-1
+      responses:
+        '200':
+          description: 提交成功，无业务数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 预留，当前尚未启用鉴权
+
+  parameters:
+    SectionCode:
+      name: code
+      in: path
+      required: true
+      description: 板块编码，小写，与 `SectionCodeEnum.code` 一致
+      schema:
+        type: string
+        enum: [basic, academic, interest, life, career, mentor]
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      description: 学生 ID，正整数
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+        example: 1001
+    AcademicYearQuery:
+      name: academicYear
+      in: query
+      required: false
+      description: 学年，格式 `2025-2026-1`；不传时取当前学年
+      schema:
+        type: string
+        example: 2025-2026-1
+
+  responses:
+    BadRequest:
+      description: 参数错误，`code` 为 `EC-40001` / `EC-40002` / `EC-40003`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+    Forbidden:
+      description: 无权限，`code` 为 `EC-40301` / `EC-40302`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+    Conflict:
+      description: 状态冲突，`code` 为 `EC-40902` / `EC-40903`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+          example:
+            code: EC-40902
+            message: 当前状态不允许该操作
+            traceId: a1b2c3d4e5f60708
+            timestamp: '2026-11-26T15:23:50+08:00'
+    ValidationFailed:
+      description: 字段校验失败，`code` 为 `EC-42201`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            code: EC-42201
+            message: 字段校验未通过
+            traceId: a1b2c3d4e5f60708
+            timestamp: '2026-11-26T15:23:50+08:00'
+            details:
+              - field: name
+                reason: NotBlank
+                message: 姓名不能为空
+              - field: email
+                reason: Email
+                message: 邮箱格式不正确
+    NotImplemented:
+      description: 骨架期占位，`code` 为 `EC-50000`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+          example:
+            code: EC-50000
+            message: 基本信息板块查询尚未实现
+            traceId: a1b2c3d4e5f60708
+            timestamp: '2026-11-26T15:23:50+08:00'
+    InternalError:
+      description: 系统异常，`code` 为 `EC-50001`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
+
+  schemas:
+    Result:
+      type: object
+      description: 统一响应体，所有接口的公共外壳
+      required: [code, message, traceId, timestamp]
+      properties:
+        code:
+          type: string
+          description: 业务码，成功为 `'0'`，失败为 `EC-xxxxx`
+          example: '0'
+        message:
+          type: string
+          description: 提示文案，可直接展示
+          example: 操作成功
+        traceId:
+          type: string
+          description: 链路追踪号，对应服务端日志 MDC
+          example: a1b2c3d4e5f60708
+        timestamp:
+          type: string
+          description: 服务端时间，ISO-8601 带时区偏移
+          example: '2026-11-26T15:23:50+08:00'
+        data:
+          description: |
+            业务数据，仅成功且存在数据时出现。类型随接口而定：
+            板块详情为 `SectionVO`，列表为 `PageResult`，保存与提交接口不返回该字段。
+        details:
+          type: array
+          description: 字段级错误明细，仅 `EC-42201` 时出现
+          items:
+            $ref: '#/components/schemas/FieldErrorDetail'
+
+    VoidResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+
+    SectionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SectionVO'
+
+    ValidationErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+        - type: object
+          properties:
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/FieldErrorDetail'
+
+    FieldErrorDetail:
+      type: object
+      description: 字段级错误明细
+      properties:
+        field:
+          type: string
+          description: 出错的字段名，与 SaveDTO 属性名一致
+          example: email
+        reason:
+          type: string
+          description: 机器可读的原因，如 NotBlank / Email / Size
+          example: Email
+        message:
+          type: string
+          description: 可直接展示的中文提示
+          example: 邮箱格式不正确
+
+    SectionVO:
+      type: object
+      description: |
+        板块详情。外层是公共信封，板块自身字段统一放在 `fields` 内，
+        由后端按 `arc_field_def` 动态下发。
+      required: [studentId, academicYear, sectionCode, sectionName, status, fields, editable]
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        sectionCode:
+          type: string
+          description: 板块编码，大写
+          enum: [BASIC, ACADEMIC, INTEREST, LIFE, CAREER, MENTOR]
+        sectionName:
+          type: string
+          example: 基本信息
+        status:
+          $ref: '#/components/schemas/ProfileStatus'
+        fields:
+          type: object
+          additionalProperties: true
+          description: 板块字段值，键名与对应 SaveDTO 属性名一致
+        editable:
+          type: boolean
+          description: 当前用户是否可编辑该板块
+
+    ProfileStatus:
+      type: string
+      description: |
+        档案板块状态。`DRAFT` 草稿、`SUBMITTED` 已提交、`RETURNED` 已退回、
+        `APPROVED` 已通过、`LOCKED` 已归档。仅 `DRAFT` / `RETURNED` 允许保存与提交。
+      enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+
+    PageResult:
+      type: object
+      description: 分页载体，列表类接口统一使用（班级台账、审计日志等，本期尚未开放）
+      required: [records, total, pageNum, pageSize]
+      properties:
+        records:
+          type: array
+          items: {}
+        total:
+          type: integer
+          format: int64
+          description: 记录总数
+        pageNum:
+          type: integer
+          format: int64
+          description: 页码，从 1 开始
+        pageSize:
+          type: integer
+          format: int64
+          description: 每页条数
+
+    BasicSectionSaveDTO:
+      type: object
+      description: 基本信息保存请求，对应 `BasicSectionSaveDTO`
+      required: [academicYear, name, studentNo]
+      properties:
+        academicYear:
+          type: string
+          description: 学年，格式 `2025-2026-1`
+          example: 2025-2026-1
+        name:
+          type: string
+          description: 姓名，2-32 字
+          example: 林清和
+        studentNo:
+          type: string
+          description: 学号
+          example: '2023010101'
+        gender:
+          type: string
+          description: 性别
+          example: 女
+        idCard:
+          type: string
+          description: 身份证号，脱敏后展示
+          example: 3301**********0028
+        phone:
+          type: string
+          description: 手机号，11 位
+          example: '13800001234'
+        email:
+          type: string
+          format: email
+          description: 邮箱
+          example: linqinghe@example.edu.cn
+
+    AcademicSectionSaveDTO:
+      type: object
+      description: 学业发展保存请求，对应 `AcademicSectionSaveDTO`
+      required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        goalShort:
+          type: string
+          description: 短期目标
+        goalLong:
+          type: string
+          description: 长期目标
+        strongSubjects:
+          type: array
+          description: 优势科目
+          items:
+            type: string
+        weakSubjects:
+          type: array
+          description: 待提升科目
+          items:
+            type: string
+        abilityNote:
+          type: string
+          description: 能力自评
+
+    InterestSectionSaveDTO:
+      type: object
+      description: 兴趣特长保存请求，对应 `InterestSectionSaveDTO`
+      required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        hobbies:
+          type: array
+          description: 兴趣标签
+          items:
+            type: string
+        hobbyDesc:
+          type: string
+          description: 兴趣描述
+        skills:
+          type: string
+          description: 特长技能
+        ideal:
+          type: string
+          description: 理想状态
+
+    LifeSectionSaveDTO:
+      type: object
+      description: 生活心理保存请求，对应 `LifeSectionSaveDTO`
+      required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        orgRole:
+          type: string
+          description: 组织职务
+        orgLevel:
+          type: string
+          description: 组织层级
+        sleepHabit:
+          type: string
+          description: 作息习惯
+        exerciseFreq:
+          type: string
+          description: 运动频率
+        stressScore:
+          type: integer
+          description: 压力指数，1-10
+          minimum: 1
+          maximum: 10
+        mood:
+          type: string
+          description: 近期心情
+
+    CareerSectionSaveDTO:
+      type: object
+      description: 职业规划保存请求，对应 `CareerSectionSaveDTO`
+      required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        intention:
+          type: string
+          description: 就业意向
+        industry:
+          type: string
+          description: 目标行业
+        position:
+          type: string
+          description: 目标岗位
+        plan:
+          type: string
+          description: 实施计划
+        support:
+          type: string
+          description: 需要支持
+
+    MentorSectionSaveDTO:
+      type: object
+      description: 导师寄语保存请求，对应 `MentorSectionSaveDTO`；仅导师角色可写
+      required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        talkDate:
+          type: string
+          format: date
+          description: 谈话日期
+          example: '2026-11-10'
+        topic:
+          type: string
+          description: 谈话主题
+        advice:
+          type: string
+          description: 导师建议
+        starLevel:
+          type: integer
+          description: 星级评分，1-5
+          minimum: 1
+          maximum: 5
+        feedback:
+          type: string
+          description: 学生反馈
