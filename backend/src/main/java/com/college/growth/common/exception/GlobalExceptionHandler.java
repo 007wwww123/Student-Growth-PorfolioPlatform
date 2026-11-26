@@ -62,9 +62,14 @@ public class GlobalExceptionHandler {
     /** 请求体缺失或 JSON 解析失败。 */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Result<Void>> handleNotReadable(HttpMessageNotReadableException ex) {
-        log.warn("请求体解析失败: {}", ex.getMessage());
+        log.warn("请求体解析失败");
         return ResponseEntity.status(ResultCode.REQUEST_BODY_INVALID.getHttpStatus())
                 .body(Result.failure(ResultCode.REQUEST_BODY_INVALID));
+    }
+
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Result<Void>> handleArgumentTypeMismatch() {
+        return ResponseEntity.badRequest().body(Result.failure(ResultCode.PARAM_INVALID));
     }
 
     /** 必填请求参数缺失。 */

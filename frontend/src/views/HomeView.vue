@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { SECTIONS } from '@/sectionMeta'
+import { availableSections } from '@/api/context'
 </script>
 
 <template>
@@ -8,19 +8,16 @@ import { SECTIONS } from '@/sectionMeta'
     <div class="intro">
       <h1 class="intro__title">六大板块</h1>
       <p class="intro__desc">
-        每个板块对应后端一个 Controller（<code>/api/sections/{code}</code>）与一组
-        SaveDTO / VO。当前为骨架阶段：页面可用，接口由 MSW 提供 mock 数据。
+        选择板块查看本学年的档案及审核状态。
       </p>
     </div>
 
     <ul class="cards">
-      <li v-for="(section, index) in SECTIONS" :key="section.code" class="cards__item">
+      <li v-for="section in availableSections" :key="section.code" class="cards__item">
         <RouterLink :to="`/sections/${section.code}`" class="card">
-          <span class="card__index">{{ index + 1 }}</span>
           <span class="card__body">
             <span class="card__name">{{ section.name }}</span>
             <span class="card__summary">{{ section.summary }}</span>
-            <span class="card__code">/api/sections/{{ section.code }}</span>
           </span>
         </RouterLink>
       </li>

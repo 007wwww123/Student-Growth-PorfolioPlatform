@@ -51,6 +51,9 @@ export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'L
  * 因此前端表单应按 fields 渲染而不是硬编码表单字段。
  */
 export interface SectionVO {
+  version?: number
+  returnReason?: string
+  fieldDefinitions?: import('@/sectionMeta').SectionFieldMeta[]
   studentId: number
   academicYear: string
   sectionCode: string

@@ -10,8 +10,8 @@
 
 - **业务规则**：板块状态流转、字段可编辑判定、完成度计算，前端只做展示，不复制规则。
 - **字段定义下发**：按字段定义表（`arc_field_def`）返回板块字段与权限位，前端据此渲染表单。
-- **校验**：接口层用 Bean Validation 兜底，业务层按字段定义校验，错误按字段返回明细。
-- **持久化**：MySQL 存业务数据，MyBatis-Plus 做单表访问，复杂查询走 XML。
+- **校验**：接口层校验学年与正文结构，业务层按字段定义校验，错误按字段返回明细。
+- **持久化**：MySQL 存业务数据，业务读写使用参数化 JDBC，保留既有 MyBatis-Plus 配置。
 - **统一出入口**：所有响应经 `Result` 包装，所有异常经 `GlobalExceptionHandler` 转换，每个请求带 `traceId`。
 - **安全边界**：高敏字段（身份证、手机、心理与资助信息）在接口层剔除或脱敏，不依赖前端隐藏。
 
@@ -30,7 +30,7 @@
 | 构建 | Maven，单模块 | 3.9+ |
 | 辅助 | Lombok、spring-boot-starter-test | — |
 
-产物：`target/student-growth-platform.jar`。代码规模：80 个主代码类 + 1 个测试类。
+产物：`target/student-growth-platform.jar`。
 
 ## 三、目录结构
 
@@ -54,7 +54,10 @@ backend/
 │   │   │   ├── interest/                        # 板块三 兴趣特长
 │   │   │   ├── life/                            # 板块四 生活心理
 │   │   │   ├── career/                          # 板块五 职业规划
-│   │   │   └── mentor/                          # 板块六 导师寄语
+│   │   │   ├── mentor/                          # 板块六 导师寄语
+│   │   │   ├── identity/                        # 会话与权限
+│   │   │   ├── profile/                         # 共享板块存储
+│   │   │   └── workflow/                        # 退回、审核及归档
 │   │   └── resources/
 │   │       └── application.yml                   # 端口、数据源、Redis、Jackson、MyBatis-Plus、日志
 │   └── test/java/com/college/growth/
@@ -69,12 +72,12 @@ backend/
 | `common/` | `<Name>Constants` | 板块编码、字段前缀、接口路径、物理表名 |
 | `config/` | `<Name>ModuleConfig` | 板块专属装配点（当前为空壳） |
 | `controller/` | `<Name>SectionController` | 路由与参数入口，只做转发 |
-| `dto/` | `<Name>SectionSaveDTO` | 保存入参 + 接口层校验注解 |
+| `dto/` | `<Name>SectionSaveDTO` | 保存入参 + 现有字段声明及局部变更映射 |
 | `entity/` | `<Name>Profile` | 板块实例，对应 `arc_profile` |
 | `exception/` | `<Name>SectionException` | 板块业务异常 |
 | `mapper/` | `<Name>ProfileMapper` | MyBatis-Plus 数据访问 |
 | `service/` | `<Name>SectionService` | 板块对外唯一入口 |
-| `service/impl/` | `<Name>SectionServiceImpl` | 业务实现（当前为占位） |
+| `service/impl/` | `<Name>SectionServiceImpl` | 委托共享 ProfileStore 完成查询、保存与提交 |
 | `util/` | `<Name>SectionUtils` | 板块内纯函数 |
 | `vo/` | `<Name>SectionVO` | 板块详情视图 |
 
@@ -85,9 +88,9 @@ backend/
 ```
 HTTP 请求
   → TraceIdFilter（生成 traceId 写入 MDC 与响应头 X-Trace-Id）
-  → Controller（@Valid 校验入参，DTO 收参，返回 Result<VO>）
+  → Controller（绑定请求字段与学年，返回 Result<VO>）
   → Service（业务规则、状态流转、事务边界）
-  → Mapper（MyBatis-Plus 单表操作，复杂查询走 XML）
+  → ProfileRepository（通过参数化 JDBC 访问业务表）
   → MySQL
 异常统一抛 BusinessException → GlobalExceptionHandler → Result + 对应 HTTP 状态码
 ```
@@ -119,11 +122,11 @@ HTTP 请求
 | # | 板块 | 编码 | 包路径 | 字段前缀 | 涉及物理表 |
 |---|---|---|---|---|---|
 | 一 | 基本信息 | `BASIC` | `com.college.growth.basic` | `basic.` | `arc_profile` |
-| 二 | 学业发展 | `ACADEMIC` | `com.college.growth.academic` | `academic.` | `arc_profile`、`arc_certificate`、`arc_event` |
+| 二 | 学业发展 | `ACADEMIC` | `com.college.growth.academic` | `academic.` | `arc_profile` |
 | 三 | 兴趣特长 | `INTEREST` | `com.college.growth.interest` | `interest.` | `arc_profile` |
 | 四 | 生活心理 | `LIFE` | `com.college.growth.life` | `life.` | `arc_profile` |
 | 五 | 职业规划 | `CAREER` | `com.college.growth.career` | `career.` | `arc_profile` |
-| 六 | 导师寄语 | `MENTOR` | `com.college.growth.mentor` | `mentor.` | `arc_mentor_note` |
+| 六 | 导师寄语 | `MENTOR` | `com.college.growth.mentor` | `mentor.` | `arc_profile` |
 
 六个板块共用 `arc_profile` 一张表，所有查询必须显式带 `section_code` 条件。板块状态固定五个，不得新增：
 
@@ -137,17 +140,20 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 ## 六、核心接口
 
-接口按板块统一，六个板块共用三个路径模板，`{code}` 取 `basic` / `academic` / `interest` / `life` / `career` / `mentor`：
+接口按板块统一，六个板块共用三个操作，`{code}` 取 `basic` / `academic` / `interest` / `life` / `career` / `mentor`：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/sections/{code}/{studentId}?academicYear=` | 查询板块详情（含字段与可编辑位） |
-| PUT | `/api/sections/{code}/{studentId}` | 保存草稿，触发 `@Valid` 校验 |
+| PUT | `/api/sections/{code}/{studentId}` | 局部保存草稿，校验字段定义和授权 |
 | POST | `/api/sections/{code}/{studentId}/submit?academicYear=` | 提交板块 |
+| GET / POST | `/api/auth/me`、`/api/auth/logout` | 当前身份、撤销会话 |
+| GET | `/api/workflow/{studentId}?academicYear=` | 已建档板块及其状态、版本 |
+| POST | `/api/workflow/{studentId}/{code}/{action}?academicYear=` | approve、return、withdraw 携带 If-Match |
+| POST | `/api/workflow/{studentId}/archive?academicYear=` | 归档六个已通过的板块 |
 | GET | `/api/actuator/health` | 健康检查（actuator） |
 
-> **当前状态：三个业务接口均已注册进容器，但 Service 为占位实现，统一返回 `501 / EC-50000`。**
-> 这是骨架期的预期行为，用于让前端先确认路由、状态码与响应结构。请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
+业务接口使用 Bearer 令牌。客户端根据详情返回的 version 设置 If-Match，保存或提交成功后重新查询。审核操作见 /api/workflow，整份归档使用六个板块的版本映射。请求和响应格式见 [openapi.yaml](../openapi.yaml)。
 
 业务码按类别分段，明细只在契约与 `ResultCode` 里维护，此处不重复：
 
@@ -228,26 +234,17 @@ mvn -f backend/pom.xml clean package
 # 健康检查
 curl http://127.0.0.1:8080/api/actuator/health
 
-# 冒烟：应为 501 与 EC-50000
-curl "http://127.0.0.1:8080/api/sections/basic/1001?academicYear=2025-2026-1"
+# 将预签发令牌放入本地 TOKEN 环境变量后验证自己的身份与授权
+curl -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:8080/api/auth/me
 
-# 字段校验：应为 422 与 EC-42201，details 带字段明细
-curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"张","studentNo":"123","email":"bad"}'
+# 使用已授权的学生与学年查询详情，获取版本与可编辑字段
+curl -H "Authorization: Bearer ${TOKEN}" \
+  "http://127.0.0.1:8080/api/sections/basic/1001?academicYear=2025-2026-1"
 ```
 
 ## 九、扩展指引
 
-**实现一个板块的业务**（以基本信息为例）：
-
-1. 补建表脚本（`arc_profile` 等），给实体加 `@TableName` 与 `@TableField` 映射。
-2. 在 `BasicSectionServiceImpl` 里替换占位方法体，遵守「仅 DRAFT / RETURNED 可写」。
-3. 字段校验优先走定义表标识，DTO 注解只做接口层兜底。
-4. 状态变更与变更日志放在同一事务。
-5. 用 curl 或集成测试验证正常路径、校验失败、状态冲突三类分支。
-
-**加字段**：先改 `SaveDTO` 与 `openapi.yaml`，再补字段定义表数据，前端 `sectionMeta.ts` 加一行即可渲染，不需要改页面结构。
+**调整板块字段**：在新的 SQL 迁移中更新字段定义，确认类型、可见性、可写角色和校验规则。真实前端按 fieldDefinitions 渲染，开发用 mock 须单独同步。更新 SQL 初始化文件列表及契约示例，并用授权会话验证字段读写与错误返回。
 
 **加板块**：复制任一同构板块的 11 个类改名，在 `SectionCodeEnum` 加枚举，路由自动可用；同步补契约与前端路由。
 
@@ -255,14 +252,13 @@ curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
 
 ## 十、注意事项
 
-- **启动不依赖数据库**。连接池懒加载，MySQL 未起也能启动；此时 `/api/actuator/health` 的 `db` 为 `DOWN`，属正常现象。
-- **501 不是缺陷**。六个板块的业务方法体统一抛 `BusinessException(ResultCode.NOT_IMPLEMENTED, ...)`。
+- **数据库启动顺序**：先启动 MySQL，后端按 application.yml 中的 schema-locations 执行幂等初始化脚本，需要数据库连接与建表权限。
 - **跨域**：后端未配置 CORS，前端通过 Vite 代理走同源请求。不要用浏览器直连 `8080`，若确需跨域，另加 `CorsConfiguration` 并写进契约说明。
 - **`target/` 已被忽略**，不要提交；`mvn clean` 会清掉产物。
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。
 - **中文乱码**：先确认库表是 `utf8mb4`，再看连接串是否带 `characterEncoding=utf8`。
 - **不要换库**：改用 PostgreSQL 需先在需求文档 `DC-03` 确认，确认前一律按 MySQL 实现。
-- **无鉴权**：当前任何调用方都能访问全部路由，数据范围校验（`EC-40302`）尚未实现，不要据此上线。
+- **业务鉴权**：业务请求需提供未过期的 Bearer 令牌，角色和学生范围由服务端核验。会话开通见下文。
 
 ## 十一、技术约定
 
@@ -275,3 +271,17 @@ curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
 7. **敏感数据**：身份证、手机、压力自评、重大事件按文档 `BR-D05` / `BR-D07` 在接口层剔除或脱敏；日志禁止打印明文敏感字段。
 8. **数据库迁移**：`src/main/resources/db/migration/V{n}__{描述}.sql`，编号连续不跳号，已执行脚本禁止修改。
 9. **注释引用**：业务代码注释标注需求编号（如 `S-1-05`、`BR-S02`、`EC-42202`），便于回溯与测试对齐。
+
+## 预签发身份会话
+
+业务端点使用 Bearer 令牌。实际授权来源由负责账号开通的人员核对；当前仓库提供数据库预签发方式。将数据库迁移应用到本地 MySQL 后，通过已配置凭据的 mysql 客户端运行以下示例。参数中的身份和授权范围须替换为核实的值。
+
+```sh
+python3 scripts/issue-session.py --database student_growth --role STUDENT --actor 1001 --students 1001 --years 2025-2026-1 --hours 1
+```
+
+数据库名以实际配置为准。签发器仅在写入成功后输出一次令牌，数据库保存 SHA-256 摘要。通过受保护的渠道将令牌交给对应使用者，线上请求使用 HTTPS。客户端用 `GET /api/auth/me` 核对当前角色、学生和学年范围，`POST /api/auth/logout` 撤销当前会话。每次业务请求都会重新核验数据库授权和到期时间。数据库角色可以删除对应摘要立即撤销，人员授权变更时应同时撤销其旧会话。`studentIds` 与 `academicYears` 代表该会话获准的学生和学年的所有组合；不同学年有不同名单时分别签发。学生身份 ID 与本人档案 ID 对应。
+
+### 真实数据库回归
+
+在专用的空 MySQL 测试库中，配置 DB_HOST、DB_PORT、DB_NAME、DB_USERNAME、DB_PASSWORD，从 backend 目录执行 `GROWTH_MYSQL_TEST=true mvn package`。测试自动执行建表脚本，覆盖数据范围、动态字段、事务回滚、并发审核、撤回次数与整体归档。常规的 `mvn test` 会跳过需要真实数据库的测试。

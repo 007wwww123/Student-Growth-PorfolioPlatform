@@ -10,6 +10,7 @@ import HomeView from '@/views/HomeView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    { path: '/workflow', name: 'workflow', component: () => import('@/views/WorkflowView.vue'), meta: { title: '审核与归档' } },
     {
       path: '/',
       name: 'home',

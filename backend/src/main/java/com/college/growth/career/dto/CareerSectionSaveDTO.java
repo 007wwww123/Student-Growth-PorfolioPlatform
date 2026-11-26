@@ -1,8 +1,8 @@
 package com.college.growth.career.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.college.growth.common.web.DraftInput;
 
 /**
  * 板块保存入参：职业规划（CAREER）。
@@ -11,14 +11,13 @@ import lombok.Data;
  * 由校验器注册表按标识执行（BR-F02），此处仅保留接口层的长度与必填兜底。</p>
  */
 @Data
-public class CareerSectionSaveDTO {
+public class CareerSectionSaveDTO extends DraftInput {
 
     /** 学年，如 2025-2026-1。 */
     @Size(max = 16, message = "学年长度不能超过 16")
     private String academicYear;
 
     /** 发展意向：EMPLOY / POSTGRAD / OVERSEAS / STARTUP / UNDECIDED（career.intention）。 */
-    @NotBlank(message = "发展意向不能为空")
     private String intention;
 
     /** 心仪行业，不超过 64 字（career.industry）。 */

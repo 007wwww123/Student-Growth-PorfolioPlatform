@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>表单提交回归</title>
+<pre id="result">运行中</pre>
+<div id="app"></div>
+<script type="module">
+import { createApp } from 'vue'
+import SectionShell from '../src/views/SectionShell.vue'
+import { enableMocking, worker } from '../src/mocks/browser'
+import { getSection } from '../src/mocks/data'
+import { currentStudentId, currentAcademicYear } from '../src/api/context'
+
+const result = document.querySelector('#result')
+async function until(predicate) {
+  const deadline = Date.now() + 10000
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('等待页面响应超时')
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+function change(id, value) {
+  const input = document.getElementById(id)
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+try {
+  await enableMocking()
+  currentStudentId.value = 1001
+  currentAcademicYear.value = '2025-2026-1'
+  const writes = []
+  worker.events.on('request:start', ({ request }) => {
+    if (['PUT', 'POST'].includes(request.method)) writes.push(request.method)
+  })
+  createApp(SectionShell, { code: 'basic' }).mount('#app')
+  await until(() => document.getElementById('field-email'))
+  const submit = () => [...document.querySelectorAll('button')].find(b => b.textContent.includes('提交板块')).click()
+  change('field-email', 'invalid')
+  submit()
+  await until(() => document.querySelector('.field__error'))
+  if (writes.join() !== 'PUT' || document.getElementById('field-email').value !== 'invalid')
+    throw new Error('保存失败后应保留输入且不提交')
+  writes.length = 0
+  change('field-email', 'new@example.edu.cn')
+  submit()
+  await until(() => document.querySelector('.tag')?.textContent === '已提交')
+  const record = getSection('basic', 1001, '2025-2026-1')
+  if (writes.join() !== 'PUT,POST' || record.fields.email !== 'new@example.edu.cn' ||
+      !document.getElementById('field-email').disabled)
+    throw new Error('直接提交后应保存新值并锁定表单')
+  result.textContent = 'PASS'
+} catch (error) {
+  result.textContent = 'FAIL ' + error.message
+}
+</script>
+</html>

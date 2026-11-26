@@ -1,4 +1,4 @@
-import type { ProfileStatus, SectionCode, SectionVO } from '../api/types'
+import type { SectionCode, SectionVO } from '../api/types'
 
 /**
  * mock 数据仓库（内存态）。
@@ -116,6 +116,9 @@ export function saveSection(
   payload: Record<string, unknown>,
 ): SectionVO {
   const current = getSection(code, studentId, academicYear)
+  if (READ_ONLY_SECTIONS.includes(code)) {
+    throw new MockError('EC-40302', '该板块由导师维护', 403)
+  }
   if (current.status !== 'DRAFT' && current.status !== 'RETURNED') {
     throw new MockError('EC-40902', '当前状态不允许该操作', 409)
   }
@@ -128,7 +131,7 @@ export function saveSection(
     fields[field] = value
   }
 
-  const next: SectionVO = { ...current, fields, status: 'DRAFT' }
+  const next: SectionVO = { ...current, fields }
   store.set(keyOf(code, studentId, academicYear), next)
   return next
 }
@@ -140,11 +143,14 @@ export function submitSection(
   academicYear: string,
 ): SectionVO {
   const current = getSection(code, studentId, academicYear)
+  if (READ_ONLY_SECTIONS.includes(code)) {
+    throw new MockError('EC-40302', '该板块由导师维护', 403)
+  }
   if (current.status !== 'DRAFT' && current.status !== 'RETURNED') {
     throw new MockError('EC-40902', '当前状态不允许该操作', 409)
   }
 
-  const next: SectionVO = { ...current, status: 'SUBMITTED' as ProfileStatus }
+  const next: SectionVO = { ...current, status: 'SUBMITTED', editable: false }
   store.set(keyOf(code, studentId, academicYear), next)
   return next
 }

@@ -1,9 +1,9 @@
 package com.college.growth.interest.dto;
 
 import java.util.List;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.college.growth.common.web.DraftInput;
 
 /**
  * 板块保存入参：兴趣特长（INTEREST）。
@@ -12,14 +12,13 @@ import lombok.Data;
  * 由校验器注册表按标识执行（BR-F02），此处仅保留接口层的长度与必填兜底。</p>
  */
 @Data
-public class InterestSectionSaveDTO {
+public class InterestSectionSaveDTO extends DraftInput {
 
     /** 学年，如 2025-2026-1。 */
     @Size(max = 16, message = "学年长度不能超过 16")
     private String academicYear;
 
     /** 兴趣爱好，1–5 项（interest.hobbies）。 */
-    @NotNull(message = "兴趣爱好不能为空")
     @Size(min = 1, max = 5, message = "兴趣爱好为 1–5 项")
     private List<String> hobbies;
 

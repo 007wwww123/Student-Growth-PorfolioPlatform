@@ -5,7 +5,8 @@ import com.college.growth.academic.dto.AcademicSectionSaveDTO;
 import com.college.growth.academic.service.AcademicSectionService;
 import com.college.growth.academic.vo.AcademicSectionVO;
 import com.college.growth.common.result.Result;
-import jakarta.validation.Valid;
+import java.util.Map;
+import com.college.growth.common.web.DraftInput;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,7 +42,9 @@ public class AcademicSectionController {
     /** 保存草稿（S-1-04）：逐字段校验后写入，DRAFT / RETURNED 之外的状态拒绝写入。 */
     @PutMapping("/{studentId}")
     public Result<Void> save(@PathVariable Long studentId,
-                             @Valid @RequestBody AcademicSectionSaveDTO dto) {
+                             @RequestBody Map<String, Object> fields) {
+        AcademicSectionSaveDTO dto = new AcademicSectionSaveDTO();
+        dto.setAcademicYear(DraftInput.bind(dto, fields));
         academicSectionService.save(studentId, dto);
         return Result.success();
     }

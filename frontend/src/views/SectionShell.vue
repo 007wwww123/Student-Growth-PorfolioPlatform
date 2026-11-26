@@ -3,7 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { isApiError, type ApiError } from '@/api/http'
 import { fetchSection, saveSection, submitSection } from '@/api/sections'
 import type { SectionCode, SectionVO } from '@/api/types'
-import { DEMO_ACADEMIC_YEAR, DEMO_STUDENT_ID, SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
+import { currentAcademicYear, currentStudentId, identity, mockMode } from '@/api/context'
+import { SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
 
 /**
  * 板块页面的公共外壳。
@@ -16,6 +17,7 @@ const props = defineProps<{ code: SectionCode }>()
 
 const meta = computed(() => SECTION_MAP[props.code])
 const section = ref<SectionVO | null>(null)
+const fields = computed(() => section.value?.fieldDefinitions ?? meta.value.fields)
 const form = reactive<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
@@ -23,7 +25,13 @@ const submitting = ref(false)
 const error = ref<ApiError | null>(null)
 const notice = ref('')
 
-const editable = computed(() => section.value?.editable ?? true)
+const savedPayload = ref('')
+const busy = computed(() => loading.value || submitting.value || saving.value)
+const editable = computed(() => !!section.value?.editable &&
+  (section.value.status === 'DRAFT' || section.value.status === 'RETURNED'))
+const canSubmit = computed(() => props.code === 'mentor'
+  ? identity.value?.role === 'MENTOR'
+  : mockMode || identity.value?.role === 'STUDENT')
 const statusLabel = computed(() =>
   section.value ? (STATUS_LABELS[section.value.status] ?? section.value.status) : '',
 )
@@ -39,18 +47,24 @@ const fieldHints = computed<Record<string, string>>(() => {
   return hints
 })
 
+const optionLabels: Record<string, string> = {
+  M: '男', F: '女', U: '未知', HIGH: '高', MID: '中', LOW: '低', NONE: '无',
+  EARLY: '早睡', NORMAL: '规律', LATE: '晚睡', GOOD: '良好', FAIR: '一般',
+  EMPLOY: '就业', POSTGRAD: '继续深造', OVERSEAS: '出国深造', STARTUP: '创业', UNDECIDED: '待定',
+}
+
 function inputType(type: string): string {
   if (type === 'number') return 'number'
   if (type === 'date') return 'date'
   return 'text'
 }
 
-function resetForm(fields: Record<string, unknown>): void {
+function resetForm(values: Record<string, unknown>): void {
   for (const key of Object.keys(form)) {
     delete form[key]
   }
-  for (const field of meta.value.fields) {
-    const raw = fields[field.key]
+  for (const field of fields.value) {
+    const raw = values[field.key]
     if (Array.isArray(raw)) {
       form[field.key] = raw.join('、')
     } else {
@@ -62,11 +76,11 @@ function resetForm(fields: Record<string, unknown>): void {
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
-  notice.value = ''
   try {
-    const data = await fetchSection(props.code, DEMO_STUDENT_ID, DEMO_ACADEMIC_YEAR)
+    const data = await fetchSection(props.code, currentStudentId.value, currentAcademicYear.value)
     section.value = data
     resetForm(data.fields ?? {})
+    savedPayload.value = JSON.stringify(buildPayload())
   } catch (e) {
     section.value = null
     error.value = isApiError(e) ? e : null
@@ -77,9 +91,10 @@ async function load(): Promise<void> {
 
 /** 把表单值按字段类型还原成后端 SaveDTO 的形状。 */
 function buildPayload(): Record<string, unknown> {
-  const payload: Record<string, unknown> = { academicYear: section.value?.academicYear ?? DEMO_ACADEMIC_YEAR }
-  for (const field of meta.value.fields) {
-    const value = (form[field.key] ?? '').trim()
+  const payload: Record<string, unknown> = { academicYear: section.value?.academicYear ?? currentAcademicYear.value }
+  for (const field of fields.value) {
+    if (field.editable === false) continue
+    const value = String(form[field.key] ?? '').trim()
     if (field.type === 'tags') {
       payload[field.key] = value
         .split(/[,，、]/)
@@ -95,11 +110,12 @@ function buildPayload(): Record<string, unknown> {
 }
 
 async function onSave(): Promise<void> {
+  if (!editable.value || busy.value) return
   saving.value = true
   error.value = null
   notice.value = ''
   try {
-    await saveSection(props.code, DEMO_STUDENT_ID, buildPayload())
+    await saveSection(props.code, currentStudentId.value, buildPayload(), section.value?.version)
     notice.value = '草稿已保存'
     await load()
   } catch (e) {
@@ -110,15 +126,21 @@ async function onSave(): Promise<void> {
 }
 
 async function onSubmit(): Promise<void> {
+  const record = section.value
+  if (!record || !canSubmit.value || !editable.value || busy.value) return
+  const code = props.code
   submitting.value = true
   error.value = null
   notice.value = ''
   try {
-    await submitSection(
-      props.code,
-      DEMO_STUDENT_ID,
-      section.value?.academicYear ?? DEMO_ACADEMIC_YEAR,
-    )
+    const payload = buildPayload()
+    if (JSON.stringify(payload) !== savedPayload.value) {
+      await saveSection(code, record.studentId, payload, record.version)
+      if (record.version != null) record.version += 1
+      savedPayload.value = JSON.stringify(payload)
+      notice.value = '草稿已保存'
+    }
+    await submitSection(code, record.studentId, record.academicYear, record.version)
     notice.value = '已提交，等待审核'
     await load()
   } catch (e) {
@@ -141,6 +163,7 @@ watch(() => props.code, load, { immediate: true })
       <span v-if="section" class="tag" :class="`tag--${section.status}`">{{ statusLabel }}</span>
     </header>
 
+    <p v-if="section?.returnReason">退回原因：{{ section.returnReason }}</p>
     <p v-if="notice" class="alert alert--success">{{ notice }}</p>
 
     <div v-if="error" class="alert alert--danger">
@@ -158,44 +181,61 @@ watch(() => props.code, load, { immediate: true })
 
     <p v-if="loading" class="board__loading">加载中…</p>
 
+    <button v-else-if="!section" type="button" class="btn" @click="load">重试加载</button>
     <form v-else class="board__form" @submit.prevent="onSave">
-      <div v-for="field in meta.fields" :key="field.key" class="field">
-        <label class="field__label" :for="`field-${field.key}`">{{ field.label }}</label>
-        <textarea
-          v-if="field.type === 'textarea'"
+      <div v-for="field in fields" :key="field.key" class="field">
+        <label class="field__label" :for="`field-${field.key}`">{{ field.label }}{{ field.required ? '（必填）' : '' }}</label>
+        <select
+          v-if="field.options?.length"
           :id="`field-${field.key}`"
           v-model="form[field.key]"
           class="field__control"
+          :aria-required="field.required"
+          :disabled="!editable || busy || field.editable === false"
+        >
+          <option value="">请选择</option>
+          <option v-for="option in field.options" :key="option" :value="option">{{ optionLabels[option] ?? option }}</option>
+        </select>
+        <textarea
+          v-else-if="field.type === 'textarea'"
+          :id="`field-${field.key}`"
+          v-model="form[field.key]"
+          class="field__control"
+          :aria-required="field.required"
+          :maxlength="field.maxLength"
           :class="{ 'has-error': fieldHints[field.key] }"
           rows="3"
-          :disabled="!editable"
+          :disabled="!editable || busy || field.editable === false"
         />
         <input
           v-else
           :id="`field-${field.key}`"
           v-model="form[field.key]"
           class="field__control"
+          :aria-required="field.required"
+          :maxlength="field.maxLength"
           :class="{ 'has-error': fieldHints[field.key] }"
           :type="inputType(field.type)"
-          :disabled="!editable"
+          :disabled="!editable || busy || field.editable === false"
         />
         <p v-if="fieldHints[field.key]" class="field__error">{{ fieldHints[field.key] }}</p>
         <p v-else-if="field.type === 'tags'" class="field__hint">多个值用逗号分隔</p>
       </div>
 
       <div class="board__actions">
-        <button type="submit" class="btn btn--primary" :disabled="!editable || saving">
+        <button type="submit" class="btn btn--primary" :disabled="!editable || busy">
           {{ saving ? '保存中…' : '保存草稿' }}
         </button>
         <button
+          v-if="canSubmit"
           type="button"
           class="btn"
-          :disabled="!editable || submitting"
+          :disabled="!editable || busy"
           @click="onSubmit"
         >
           {{ submitting ? '提交中…' : '提交板块' }}
         </button>
-        <button type="button" class="btn btn--ghost" @click="load">重新加载</button>
+        <button type="button" class="btn btn--ghost" :disabled="busy" @click="notice = ''; load()">重新加载</button>
         <span v-if="!editable" class="board__lock">当前状态不可编辑</span>
       </div>
     </form>

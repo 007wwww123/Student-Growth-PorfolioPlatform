@@ -5,7 +5,8 @@ import com.college.growth.life.dto.LifeSectionSaveDTO;
 import com.college.growth.life.service.LifeSectionService;
 import com.college.growth.life.vo.LifeSectionVO;
 import com.college.growth.common.result.Result;
-import jakarta.validation.Valid;
+import java.util.Map;
+import com.college.growth.common.web.DraftInput;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,7 +42,9 @@ public class LifeSectionController {
     /** 保存草稿（S-1-04）：逐字段校验后写入，DRAFT / RETURNED 之外的状态拒绝写入。 */
     @PutMapping("/{studentId}")
     public Result<Void> save(@PathVariable Long studentId,
-                             @Valid @RequestBody LifeSectionSaveDTO dto) {
+                             @RequestBody Map<String, Object> fields) {
+        LifeSectionSaveDTO dto = new LifeSectionSaveDTO();
+        dto.setAcademicYear(DraftInput.bind(dto, fields));
         lifeSectionService.save(studentId, dto);
         return Result.success();
     }

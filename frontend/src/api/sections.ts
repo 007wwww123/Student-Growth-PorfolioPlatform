@@ -27,10 +27,12 @@ export function saveSection(
   code: SectionCode,
   studentId: number,
   payload: Record<string, unknown>,
+  version?: number,
 ): Promise<void> {
   return request<void>({
     url: `/sections/${code}/${studentId}`,
     method: 'PUT',
+    headers: version == null ? undefined : { 'If-Match': String(version) },
     data: payload,
   })
 }
@@ -40,10 +42,12 @@ export function submitSection(
   code: SectionCode,
   studentId: number,
   academicYear: string,
+  version?: number,
 ): Promise<void> {
   return request<void>({
     url: `/sections/${code}/${studentId}/submit`,
     method: 'POST',
+    headers: version == null ? undefined : { 'If-Match': String(version) },
     params: { academicYear },
   })
 }

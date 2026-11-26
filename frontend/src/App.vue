@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { SECTIONS } from '@/sectionMeta'
+import SessionPanel from '@/views/SessionPanel.vue'
+import { availableSections, currentStudentId, currentAcademicYear, identity, mockMode } from '@/api/context'
 
 const route = useRoute()
 </script>
@@ -10,14 +11,15 @@ const route = useRoute()
     <header class="layout__header">
       <div class="layout__brand">
         <span class="layout__logo">成长档案</span>
-        <span class="layout__subtitle">学生成长档案平台 · 前端骨架</span>
+        <span class="layout__subtitle">学生成长档案平台</span>
       </div>
-      <nav class="layout__nav">
+      <SessionPanel v-if="!mockMode" />
+      <nav v-if="mockMode || identity" class="layout__nav">
         <RouterLink to="/" class="layout__nav-item" :class="{ 'is-active': route.name === 'home' }">
           总览
         </RouterLink>
         <RouterLink
-          v-for="section in SECTIONS"
+          v-for="section in availableSections"
           :key="section.code"
           :to="`/sections/${section.code}`"
           class="layout__nav-item"
@@ -25,15 +27,16 @@ const route = useRoute()
         >
           {{ section.name }}
         </RouterLink>
+        <RouterLink v-if="!mockMode" to="/workflow" class="layout__nav-item">审核与归档</RouterLink>
       </nav>
     </header>
 
     <main class="layout__main">
-      <RouterView />
+      <RouterView v-if="mockMode || (identity && currentStudentId && currentAcademicYear)" :key="[identity?.actorId,currentStudentId,currentAcademicYear,route.path].join('/')" />
     </main>
 
     <footer class="layout__footer">
-      接口契约见仓库根目录 openapi.yaml；后端未实现时由 MSW 提供 mock 数据。
+      {{ mockMode ? '演示数据' : '学生成长档案平台' }}
     </footer>
   </div>
 </template>

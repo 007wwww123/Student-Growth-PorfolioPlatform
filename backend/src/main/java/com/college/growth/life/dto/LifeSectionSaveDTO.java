@@ -2,10 +2,9 @@ package com.college.growth.life.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.college.growth.common.web.DraftInput;
 
 /**
  * 板块保存入参：生活心理（LIFE）。
@@ -14,7 +13,7 @@ import lombok.Data;
  * 由校验器注册表按标识执行（BR-F02），此处仅保留接口层的长度与必填兜底。</p>
  */
 @Data
-public class LifeSectionSaveDTO {
+public class LifeSectionSaveDTO extends DraftInput {
 
     /** 学年，如 2025-2026-1。 */
     @Size(max = 16, message = "学年长度不能超过 16")
@@ -34,12 +33,10 @@ public class LifeSectionSaveDTO {
     private String exerciseFreq;
 
     /** 压力自评，整数 1–5，仅学生本人可见（life.stressScore）。 */
-    @NotNull(message = "压力自评不能为空")
     @Min(value = 1, message = "压力自评取值 1–5")
     @Max(value = 5, message = "压力自评取值 1–5")
     private Integer stressScore;
 
     /** 整体情绪：GOOD / FAIR / LOW（life.mood）。 */
-    @NotBlank(message = "整体情绪不能为空")
     private String mood;
 }

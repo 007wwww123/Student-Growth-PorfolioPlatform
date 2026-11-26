@@ -11,7 +11,7 @@
 - **六板块页面**：一板块一路由一视图，展示板块状态、字段值与可编辑性。
 - **表单交互**：按后端下发的字段渲染表单，做输入提示与就地错误展示。
 - **请求封装**：统一按 `Result` 解包，把业务码转成可直接展示的错误。
-- **联调支撑**：后端未实现时用 MSW 提供 mock，保证页面先跑通。
+- **联调支撑**：演示模式下使用 MSW；真实模式连接受会话保护的后端。
 
 前端**不负责**：业务规则判定（能否编辑、能否提交以 `editable` 与业务码为准）、字段校验的最终裁决（以后端为准）、权限与脱敏（后端在接口层处理）。
 
@@ -29,7 +29,7 @@
 | Mock | MSW | `^2.4.9` | 2.15.0 |
 | 脚本运行 | `tsx`（跑 smoke 测试） | `^4.23.15` | 4.23.15 |
 
-未引入 UI 组件库与状态管理库：骨架期样式手写，跨页状态目前只有「学生 ID + 学年」两个常量，接入登录后再评估是否引入 Pinia。
+未引入 UI 组件库与状态管理库：骨架期样式手写，当前会话、授权学生与学年由 src/api/context.ts 管理。
 
 ### 环境变量
 
@@ -54,7 +54,7 @@ frontend/
 ├── public/
 │   └── mockServiceWorker.js   # MSW 拦截脚本，由 npx msw init 生成，随仓库提交
 ├── scripts/
-│   └── smoke-mock.mts         # mock 冒烟测试（14 项断言）
+│   └── smoke-mock.mts         # mock 冒烟测试（16 项断言）
 ├── src/
 │   ├── api/
 │   │   ├── constants.ts       # 成功码 '0'、接口前缀
@@ -118,7 +118,7 @@ frontend/
 - `type` 支持 `text` / `textarea` / `number` / `date` / `tags`；`tags` 在页面上以逗号分隔输入，提交时转成数组。
 - 字段值取自接口返回的 `fields`，提交时按同样结构组装回 `SaveDTO` 形状，并补 `academicYear`。
 
-后端实现字段定义表后，把 `sectionMeta.ts` 改为从接口读取即可，页面结构不用改。
+真实接口的字段定义给出必填标识、可写权限和枚举选项。保存仅发送可写字段。
 
 ### 数据流
 
@@ -141,18 +141,18 @@ SectionShell.vue
 | `npm run build` | `vue-tsc --noEmit` 类型检查 + Vite 生产构建，产物在 `dist/` |
 | `npm run type-check` | 仅类型检查，不构建 |
 | `npm run preview` | 本地预览 `dist/` 产物 |
-| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构与错误码（14 项断言） |
+| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构与错误码（16 项断言） |
 
 改动 `src/mocks/` 或 `src/api/types.ts` 后建议跑一次 `smoke:mock`，能挡住大部分契约漂移。
 
 ## 六、mock 与切换真实接口
 
-默认 `VITE_USE_MOCK=true`，`main.ts` 在挂载前启动 Service Worker，`/api/**` 由 `mocks/handlers.ts` 接管，因此**不启动后端也能跑通全部页面**。
+开发环境默认启用 MSW，可独立演示板块查询、保存和提交。
 
 切换到真实后端：
 
 1. 启动后端（见 [backend/README.md](../backend/README.md)）；
-2. 本机新建 `.env.local`，写入 `VITE_USE_MOCK=false`；
+2. 在终端设置 `export VITE_USE_MOCK=false`；
 3. 重启 `npm run dev`。
 
 请求经 Vite 代理到 `http://127.0.0.1:8080/api`。后端业务接口目前返回 `EC-50000`，页面会显示对应提示，属预期。
@@ -163,10 +163,10 @@ mock 覆盖：六板块的详情、保存、提交，以及 `EC-42201`（字段�
 
 - **浏览器用 `http://localhost:5173`**。本机 Vite 可能只绑定 `::1`，用 `127.0.0.1` 会连接失败。
 - **`node_modules/` 与 `dist/` 不入库**，已在根 `.gitignore` 忽略；不要为了「让同事直接跑」而提交它们。
-- **不要硬编码表单字段**。新增字段只在 `sectionMeta.ts` 与后端 `SaveDTO` 两处加，页面自动渲染。
+- 新增字段应维护后端字段定义。如演示也需覆盖该字段，同步更新 mock 字段清单和示例数据。
 - **契约变更两边同步**。改字段名的顺序：`openapi.yaml` → 后端 `SaveDTO` → `sectionMeta.ts` → `mocks/data.ts`，最后跑 `smoke:mock`。
 - **提交前至少跑 `npm run type-check`**；改了 mock 或类型再跑 `smoke:mock`。
-- **无登录态**。学生 ID 与学年暂用 `sectionMeta.ts` 的 `DEMO_STUDENT_ID` / `DEMO_ACADEMIC_YEAR`；鉴权头预留 `Authorization: Bearer`，后端就绪后在 `http.ts` 统一注入。
+- 登录态仅存于页面内存，请求层统一发送 Bearer 令牌。演示模式使用固定学生和学年。
 - **错误展示分工**：`code` 与 `message` 直接展示，`traceId` 折叠展示供报障，`details` 按字段就位提示。
 - **样式为骨架期手写**。引入 UI 组件库时先统一 `assets/main.css` 的变量，避免两套主题变量并存。
 
@@ -175,4 +175,6 @@ mock 覆盖：六板块的详情、保存、提交，以及 `EC-42201`（字段�
 - **新增板块**：`router/index.ts` 加路由 → `views/sections/` 加视图（复用 `SectionShell`）→ `sectionMeta.ts` 加字段清单 → `mocks/handlers.ts` 与 `mocks/data.ts` 加数据。
 - **板块特有交互**（附件上传、证书列表等）：写在对应 `sections/*View.vue` 内，公共外壳 `SectionShell.vue` 保持通用，避免影响其他板块。
 - **新增接口**：`src/api/` 下按板块加函数，`handlers.ts` 补处理器，同步 `openapi.yaml`。
-- **新增全局状态或登录**：先评估是否引入 Pinia；登录态建议放 `src/stores/`，并在 `api/http.ts` 的请求拦截器里注入令牌。
+- 已有登录及学生上下文集中在 `src/api/context.ts`；新页面复用该模块。
+
+运行开发服务后，打开 `/scripts/form-regression.html` 可单独验证共享表单的提交行为。页面显示 `PASS` 表示非法输入已阻止提交，修正后直接提交会保存新值并锁定表单。

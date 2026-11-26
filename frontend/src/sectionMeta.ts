@@ -15,6 +15,9 @@ export interface SectionFieldMeta {
   key: string
   label: string
   type: FieldType
+  editable?: boolean
+  required?: boolean
+  options?: string[]
   /** 可用字符数，仅用于输入框提示 */
   maxLength?: number
 }

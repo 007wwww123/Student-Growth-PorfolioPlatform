@@ -5,7 +5,8 @@ import com.college.growth.career.dto.CareerSectionSaveDTO;
 import com.college.growth.career.service.CareerSectionService;
 import com.college.growth.career.vo.CareerSectionVO;
 import com.college.growth.common.result.Result;
-import jakarta.validation.Valid;
+import java.util.Map;
+import com.college.growth.common.web.DraftInput;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,7 +42,9 @@ public class CareerSectionController {
     /** 保存草稿（S-1-04）：逐字段校验后写入，DRAFT / RETURNED 之外的状态拒绝写入。 */
     @PutMapping("/{studentId}")
     public Result<Void> save(@PathVariable Long studentId,
-                             @Valid @RequestBody CareerSectionSaveDTO dto) {
+                             @RequestBody Map<String, Object> fields) {
+        CareerSectionSaveDTO dto = new CareerSectionSaveDTO();
+        dto.setAcademicYear(DraftInput.bind(dto, fields));
         careerSectionService.save(studentId, dto);
         return Result.success();
     }

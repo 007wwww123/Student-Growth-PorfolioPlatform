@@ -1,10 +1,10 @@
 package com.college.growth.basic.dto;
 
 import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.college.growth.common.web.DraftInput;
 
 /**
  * 板块保存入参：基本信息（BASIC）。
@@ -13,19 +13,17 @@ import lombok.Data;
  * 由校验器注册表按标识执行（BR-F02），此处仅保留接口层的长度与必填兜底。</p>
  */
 @Data
-public class BasicSectionSaveDTO {
+public class BasicSectionSaveDTO extends DraftInput {
 
     /** 学年，如 2025-2026-1。 */
     @Size(max = 16, message = "学年长度不能超过 16")
     private String academicYear;
 
     /** 姓名，2–32 字，不含数字（basic.name）。 */
-    @NotBlank(message = "姓名不能为空")
     @Size(min = 2, max = 32, message = "姓名长度为 2–32 字")
     private String name;
 
     /** 学号，8–12 位数字，创建后任何角色不可改（basic.studentNo）。 */
-    @NotBlank(message = "学号不能为空")
     @Pattern(regexp = "^[0-9]{8,12}$", message = "学号必须为 8–12 位数字")
     private String studentNo;
 

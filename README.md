@@ -9,7 +9,7 @@
 ![Vite](https://img.shields.io/badge/Vite-5.4-646CFF)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D)
-![Status](https://img.shields.io/badge/Status-骨架阶段-yellow)
+![Status](https://img.shields.io/badge/Status-业务联调中-yellow)
 
 ---
 
@@ -24,7 +24,7 @@
 5. **问题可定位**：每个响应带 `traceId`，与后端日志一一对应，用户报障时能直接查到那一次请求。
 6. **前后端可并行**：以 `openapi.yaml` 为契约，前端先用 mock 跑页面，后端按契约补实现，互不阻塞。
 
-> 当前处于**骨架阶段**：工程结构、接口契约、页面框架已就绪，六个板块的业务逻辑尚未实现。进度见「六、当前进度」。
+> 当前已接入真实存储、身份校验与审核归档流程。联调需要 MySQL 和预签发会话，一期整体验收仍需按需求逐项核对。
 
 ## 二、整体架构
 
@@ -47,7 +47,7 @@
 
 - **浏览器只与 `/api` 通信**，不直连数据库。后端 `context-path` 就是 `/api`，前端开发代理原样转发，不做路径重写。
 - **`openapi.yaml` 是唯一契约**，字段名、错误码、分页、鉴权头都写在这里。契约一改，前端 mock 与后端 DTO 必须同步。
-- **两端可独立运行**。前端默认走 mock，不启后端也能跑通全部页面；后端不启前端也能用 curl 验证接口。联调只是把前端的 mock 开关关掉。
+- **两端可独立运行**。开发环境默认通过 mock 演示板块表单。审核、归档与身份验证请切换至真实接口；后端也可通过带令牌的 HTTP 请求单独验证。
 
 ## 三、仓库结构
 
@@ -73,7 +73,7 @@ Student-Growth-PorfolioPlatform/
 
 | 位置 | 内容 | 详细说明 |
 |---|---|---|
-| `backend/` | 后端代码（80 个主代码类 + 1 个测试类） | [backend/README.md](backend/README.md) |
+| `backend/` | 后端代码及测试 | [backend/README.md](backend/README.md) |
 | `frontend/` | 前端代码 | [frontend/README.md](frontend/README.md) |
 | `openapi.yaml` | 接口契约 | 用编辑器或 Swagger 系工具打开 |
 
@@ -88,7 +88,7 @@ Student-Growth-PorfolioPlatform/
 | 技术栈 | Spring Boot 3.2.12 + MyBatis-Plus 3.5.7 | Vue 3.5 + Vite 5.4 + TypeScript 5.6 |
 | 端口 | `8080`（`SERVER_PORT` 可改） | `5173`（Vite 默认） |
 | 接口前缀 | `context-path: /api` | `baseURL: /api`，开发代理转发至 8080 |
-| 数据来源 | MySQL（业务数据）+ Redis（缓存，预留） | 后端接口；后端未实现时走 MSW mock |
+| 数据来源 | MySQL（业务数据）+ Redis（缓存，预留） | 真实接口或开发用 MSW mock |
 | 契约依据 | `openapi.yaml` | `openapi.yaml`（mock 与请求封装均按它写） |
 | 统一响应 | `Result`：`code / message / traceId / timestamp / data / details` | `request<T>()` 解包，失败抛 `ApiError` |
 
@@ -100,7 +100,7 @@ Student-Growth-PorfolioPlatform/
         ← Result 包装 ← ApiError 或 data ← 页面渲染
 ```
 
-开发期前端 `VITE_USE_MOCK=true` 时请求在浏览器内被 MSW 拦截，不到达后端；改为 `false` 即切换真实接口，页面代码不变。
+开发期前端 `VITE_USE_MOCK=true` 时请求在浏览器内被 MSW 拦截，不到达后端；改为 `false` 即切换真实接口，重启 Vite 并接入有效会话后可联调。
 
 ## 五、运行要求与启动方式
 
@@ -145,21 +145,20 @@ npm --prefix frontend run dev
 
 **只看前端**：跳过第 1、2 步，`cd frontend && npm install && npm run dev` 即可，默认 mock 不依赖后端。
 
+**真实流程联调**：在本地 MySQL 上启动后端，使其执行初始化脚本。在 `frontend/.env.development.local` 设置 `VITE_USE_MOCK=false`、重启前端。按后端 README 中的“预签发身份会话”签发对应角色、学生及学年的令牌，在前端载入会话。
+
 命令参数、配置项与排错按职责分别写在两个目录的 README 里，本文不重复。
 
 ## 六、当前进度
 
 | 能力 | 状态 |
 |---|---|
-| 六大板块的包结构、DTO / VO / Mapper / Entity | 已就位 |
-| 六大板块的业务逻辑 | **未实现**，接口返回 `EC-50000`（HTTP 501） |
-| 统一响应体、业务码、全局异常、traceId | 已完成 |
-| 接口契约 `openapi.yaml` | 已完成，与后端代码交叉校验一致 |
-| 前端六板块页面、路由、请求封装 | 已完成 |
-| 前端 mock（六板块 × 三接口） | 已完成，14 项断言通过 |
-| 数据库建表脚本 | 未开始 |
-| 登录与鉴权 | 未开始 |
-| 档案导出（PDF / Excel） | 未开始 |
+| 六板块详情、草稿和提交 | 共享 MySQL 存储，字段定义与权限从服务端下发；写入使用版本检查 |
+| 审核、撤回和归档 | 提供按学生与学年查询、退回、重提、通过、撤回及六板块整体归档 |
+| 数据库初始化 | 后端启动时执行 V1 会话表及 V2 业务表和字段定义脚本 |
+| 身份与访问控制 | 预签发令牌；授权按角色、学生和学年生效。校方正式身份系统的接入方式待核定 |
+| 前端验证 | mock 冒烟用于表单交互；真实端到端验收须使用实际后端、数据库及多角色会话 |
+| 附件、PDF / Excel 导出及归档后例外流程 | 待核定一期范围并逐项验收 |
 
 ## 七、协作约定
 

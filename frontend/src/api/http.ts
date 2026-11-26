@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import { accessToken, identity, currentStudentId, currentAcademicYear } from './context'
 import { SUCCESS_CODE } from './constants'
 import type { FieldErrorDetail, Result } from './types'
 
@@ -47,6 +48,11 @@ const instance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+instance.interceptors.request.use(config => {
+  if (accessToken.value) config.headers.Authorization = `Bearer ${accessToken.value}`
+  return config
+})
+
 /**
  * 发起请求并按 Result 约定解包。
  *
@@ -78,7 +84,15 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
 
     return body.data as T
   } catch (error) {
-    throw normalizeError(error)
+    const failure = normalizeError(error)
+    if (failure.httpStatus === 401 && error instanceof AxiosError &&
+        error.config?.headers.Authorization === `Bearer ${accessToken.value}`) {
+      accessToken.value = ''
+      identity.value = null
+      currentStudentId.value = 0
+      currentAcademicYear.value = ''
+    }
+    throw failure
   }
 }
 

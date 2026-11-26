@@ -85,6 +85,9 @@ check(
 )
 
 // 7. 重复提交 -> EC-40902
+check('提交后只读且保留已保存字段', afterSubmit.body.data.editable === false && afterSubmit.body.data.fields.name === '张三', JSON.stringify(afterSubmit.body.data.status))
+const mentorSubmit = await call('/sections/mentor/1001/submit?academicYear=2025-2026-1', { method: 'POST' })
+check('学生无法提交导师寄语', mentorSubmit.status === 403, String(mentorSubmit.status))
 const conflict = await call('/sections/basic/1001/submit?academicYear=2025-2026-1', { method: 'POST' })
 check('重复提交状态冲突', conflict.status === 409 && conflict.body.code === 'EC-40902', `${conflict.status} code=${conflict.body.code}`)
 

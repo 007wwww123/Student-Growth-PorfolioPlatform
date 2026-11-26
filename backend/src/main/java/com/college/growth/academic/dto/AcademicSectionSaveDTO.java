@@ -1,9 +1,9 @@
 package com.college.growth.academic.dto;
 
 import java.util.List;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import com.college.growth.common.web.DraftInput;
 
 /**
  * 板块保存入参：学业发展（ACADEMIC）。
@@ -12,7 +12,7 @@ import lombok.Data;
  * 由校验器注册表按标识执行（BR-F02），此处仅保留接口层的长度与必填兜底。</p>
  */
 @Data
-public class AcademicSectionSaveDTO {
+public class AcademicSectionSaveDTO extends DraftInput {
 
     /** 学年，如 2025-2026-1。 */
     @Size(max = 16, message = "学年长度不能超过 16")

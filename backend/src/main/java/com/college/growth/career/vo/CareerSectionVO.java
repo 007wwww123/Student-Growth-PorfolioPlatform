@@ -12,6 +12,10 @@ import lombok.Data;
 @Data
 public class CareerSectionVO {
 
+    private long version;
+    private String returnReason;
+    private java.util.List<Map<String, Object>> fieldDefinitions;
+
     /** 学生 ID。 */
     private Long studentId;
 
