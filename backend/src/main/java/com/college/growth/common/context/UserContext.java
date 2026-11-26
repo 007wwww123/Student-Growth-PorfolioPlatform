@@ -20,8 +20,9 @@ public final class UserContext {
     /**
      * 取当前用户。
      *
-     * <p>骨架期未接统一认证，缺失上下文时按「学生本人」处理，便于本地联调；
-     * 接入认证后此处应改为抛出 {@code EC-40101}，不能继续兜底。</p>
+     * <p>受保护接口由 {@code JwtAuthFilter} 保证上下文一定存在；这里的匿名兜底只服务于
+     * 内部调用与单元测试。业务代码若拿到 {@code userId=0}，应当按无权限处理，
+     * 不要把它当成「默认学生」。</p>
      */
     public static CurrentUser get() {
         CurrentUser user = HOLDER.get();

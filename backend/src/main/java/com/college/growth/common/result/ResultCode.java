@@ -17,6 +17,9 @@ public enum ResultCode {
 
     UNAUTHORIZED("EC-40101", 401, "登录已失效，请重新登录"),
     TOKEN_EXPIRED("EC-40102", 401, "登录已过期，请重新登录"),
+    ACCOUNT_LOCKED("EC-40103", 401, "账号已锁定，请联系管理员"),
+    LOGIN_FAILED("EC-40104", 401, "账号或密码错误"),
+    ACCOUNT_DISABLED("EC-40105", 401, "账号已停用，请联系管理员"),
 
     FIELD_NOT_EDITABLE("EC-40301", 403, "该字段由学校维护，无法修改"),
     DATA_SCOPE_DENIED("EC-40302", 403, "无权访问该学生档案"),

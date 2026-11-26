@@ -14,6 +14,7 @@
 - **持久化**：MySQL 存业务数据，MyBatis-Plus 做单表访问，复杂查询走 XML。
 - **统一出入口**：所有响应经 `Result` 包装，所有异常经 `GlobalExceptionHandler` 转换，每个请求带 `traceId`。
 - **安全边界**：高敏字段（身份证、手机、心理与资助信息）在接口层剔除或脱敏，不依赖前端隐藏。
+- **认证**：账号密码登录换 JWT，令牌校验统一在 `JwtAuthFilter` 完成，业务代码只读 `UserContext`，不自己解析令牌。
 
 后端**不负责**：页面渲染、表单交互、前端路由。前后端只通过 `openapi.yaml` 约定的 HTTP 接口耦合。
 
@@ -26,11 +27,11 @@
 | 持久层 | MyBatis-Plus（`mybatis-plus-spring-boot3-starter`） | 3.5.7 |
 | 驱动 | MySQL Connector/J | 随 Boot 管理 |
 | 数据库 | MySQL，字符集 `utf8mb4`，排序 `utf8mb4_0900_ai_ci` | 8.0.32+ |
-| 缓存 | Redis（会话白名单、字典缓存、任务锁，预留） | 7.x |
+| 缓存 | Redis（令牌吊销名单；字典缓存、任务锁预留） | 7.x |
 | 构建 | Maven，单模块 | 3.9+ |
 | 辅助 | Lombok、spring-boot-starter-test | — |
 
-产物：`target/student-growth-platform.jar`。代码规模：80 个主代码类 + 1 个测试类。
+产物：`target/student-growth-platform.jar`。代码规模：155 个主代码类 + 10 个测试类（79 条用例）。
 
 ## 三、目录结构
 
@@ -41,9 +42,10 @@ backend/
 │   ├── main/
 │   │   ├── java/com/college/growth/
 │   │   │   ├── GrowthPlatformApplication.java   # 启动入口
+│   │   │   ├── auth/                            # 登录鉴权（账号、JWT、吊销名单，见第六节）
 │   │   │   ├── common/                          # 平台公共层（六板块复用）
 │   │   │   │   ├── constant/                    # 通用常量（traceId 键名、板块数量）
-│   │   │   │   ├── context/                     # CurrentUser、UserContext（骨架期请求头身份）
+│   │   │   │   ├── context/                     # CurrentUser、UserContext（由令牌填充）
 │   │   │   │   ├── enums/                       # SectionCodeEnum、ProfileStatusEnum、UserRoleEnum
 │   │   │   │   ├── exception/                   # BusinessException、GlobalExceptionHandler
 │   │   │   │   ├── field/                       # 字段定义、校验器注册表、脱敏规则
@@ -51,8 +53,9 @@ backend/
 │   │   │   │   ├── org/                         # 班级实体、学生班级与审核权解析
 │   │   │   │   ├── profile/                     # 板块实例/字段值、值编解码、待确认区服务
 │   │   │   │   ├── result/                      # Result、ResultCode、FieldErrorDetail、PageResult
+│   │   │   │   ├── student/                     # 学生主数据（SIS 落地副本）与字段同步
 │   │   │   │   ├── util/                        # 文本规范化、学年计算
-│   │   │   │   └── web/                         # TraceIdFilter、UserContextFilter
+│   │   │   │   └── web/                         # TraceIdFilter、JwtAuthFilter（令牌校验与身份注入）
 │   │   │   ├── config/                          # JacksonConfig、MybatisPlusConfig
 │   │   │   ├── review/                          # 公共审核模块（六板块共用，见第六节）
 │   │   │   ├── basic/                           # 板块一 基本信息
@@ -62,11 +65,14 @@ backend/
 │   │   │   ├── career/                          # 板块五 职业规划
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
-│   │       ├── application.yml                   # 端口、数据源、Redis、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 04 顺序执行
+│   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 09 顺序执行
 │   │       └── mapper/review/                    # 待审列表 SQL（复杂查询走 XML）
 │   └── test/java/com/college/growth/
-│       └── common/util/TextUtilsTest.java        # 文本规范化单元测试（3 条用例）
+│       ├── auth/service/                         # PasswordHasher（5）、JwtService（7）、AuthService（8）
+│       ├── basic/service/                        # 板块一详情、保存、提交、越权与校验分支
+│       ├── common/                               # 字段校验器、班级归属、待确认区、SIS 同步、文本规范化
+│       └── review/service/                       # 状态机：提交、撤回、通过、退回
 └── README.md
 ```
 
@@ -93,6 +99,7 @@ backend/
 ```
 HTTP 请求
   → TraceIdFilter（生成 traceId 写入 MDC 与响应头 X-Trace-Id）
+  → JwtAuthFilter（校验 Authorization: Bearer，解析身份写入 UserContext；失败即 401）
   → Controller（@Valid 校验入参，DTO 收参，返回 Result<VO>）
   → Service（业务规则、状态流转、事务边界）
   → Mapper（MyBatis-Plus 单表操作，复杂查询走 XML）
@@ -112,10 +119,11 @@ HTTP 请求
 | 组件 | 作用 |
 |---|---|
 | `Result<T>` | 固定结构 `code / message / traceId / timestamp / data / details`，`data` 与 `details` 按 `non_null` 序列化 |
-| `ResultCode` | 业务码枚举，含 HTTP 状态与默认文案，共 16 个码值 |
+| `ResultCode` | 业务码枚举，含 HTTP 状态与默认文案，共 21 个码值 |
 | `BusinessException` | 业务异常，携带 `ResultCode` 与自定义文案 |
-| `GlobalExceptionHandler` | 参数类 400、字段校验 422、状态冲突 409、未捕获异常 500，字段校验附 `details` |
+| `GlobalExceptionHandler` | 参数类 400、未登录 401、字段校验 422、状态冲突 409、未捕获异常 500，字段校验附 `details` |
 | `TraceIdFilter` | 每请求生成 32 位 traceId，写入 MDC 与 `X-Trace-Id` 响应头 |
+| `JwtAuthFilter` | 校验 Bearer 令牌并把身份注入 `UserContext`，白名单仅 `/auth/login` 与 `/actuator` |
 | `TextUtils.normalize` | 去首尾空格、连续空格压缩为一个（文档 4.1.3） |
 | `MybatisPlusConfig` | 分页插件 + `BlockAttackInnerInterceptor`，阻断全表 update / delete |
 | `JacksonConfig` | 固定东八区，日期按字符串输出，时间为带偏移的 ISO-8601 |
@@ -179,7 +187,7 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
 | POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用**；
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -195,20 +203,50 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 新增板块时**不需要**写审核代码：只要板块的提交动作调用 `ProfileWorkflowService.submit(...)`，
 就能被审核模块纳管。板块负责「内容是否齐全」，审核模块负责「谁能改、何时能改、留什么痕」。
 
-骨架期没有接入统一认证，当前用户由请求头模拟（**只用于本地联调，不是鉴权**）：
+### 登录鉴权模块（`com.college.growth.auth`）
 
-| 请求头 | 取值 | 说明 |
+| 方法 | 路径 | 说明 |
 |---|---|---|
-| `X-User-Id` | 数字，缺省 0 | 操作人 ID，写入变更日志 |
-| `X-User-Role` | `STU` / `COU` / `ADMIN`，缺省 `STU` | 决定字段可见与可编辑；`ADMIN` 默认看不到业务字段 |
-| `X-Temp-Grant` | `true` / `false` | 管理员临时只读授权（审批通过后最长 4 小时） |
+| POST | `/api/auth/login` | 账号密码换令牌，**唯一的匿名业务接口** |
+| GET | `/api/auth/me` | 查询当前登录用户，供前端刷新后恢复登录态 |
+| POST | `/api/auth/logout` | 把令牌 `jti` 写入吊销名单，立即失效 |
+
+| 类 | 职责 |
+|---|---|
+| `AuthController` | `/api/auth/**` 三个接口 |
+| `AuthService` | 登录校验（账号不存在也跑一次假哈希，避免时序泄露）、签发令牌、登出、刷新登录时间 |
+| `JwtService` | HS256 签发与解析，载荷 `sub/role/grant/name/jti/iat/exp`；密钥不足 32 字符启动即失败 |
+| `PasswordHasher` | PBKDF2WithHmacSHA256，格式 `pbkdf2$迭代$salt$hash`，`MessageDigest.isEqual` 定长比对 |
+| `TokenBlacklistService` | Redis 存被吊销的 `jti`（TTL = 剩余有效期）；Redis 不可用时 fail-open，不阻断业务 |
+
+当前用户身份**只来自令牌**，`UserContext` 由 `JwtAuthFilter` 填充；请求头 `X-User-Id` / `X-User-Role` / `X-Temp-Grant`
+已随骨架期一起移除，再发送也不会生效。角色差异仍在业务侧判定：
+
+| 角色 | 数据范围 |
+|---|---|
+| `STU` | 只能读写本人档案（`studentId` 取自令牌） |
+| `COU` | 按 `org_class.counselor_user_id` 判定本班 |
+| `ADMIN` | 默认无业务数据权限，`sys_user.temp_grant = 1` 才可只读（否则 `EC-40302`） |
+
+演示账号由 `09_insert_user_seed.sql` 写入，密码统一 `Passw0rd!`：
+
+| 登录名 | 角色 | 说明 |
+|---|---|---|
+| `2023010101` | STU | 学生，关联 `studentId=1001` |
+| `2023010102` / `2023010201` | STU | 另两个班的学生 |
+| `9001` / `9002` | COU | 辅导员，各带一个班 |
+| `9003` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
+| `9004` | ADMIN | 无授权，用于验证 `EC-40302` |
+
+令牌默认 8 小时有效，可通过 `JWT_TTL_HOURS` 调整；签名密钥取 `JWT_SECRET`，**生产必须覆盖**，
+`application.yml` 里的默认值仅供本地联调。密码摘要算法与迭代次数变更后老账号需重置密码（无平滑迁移）。
 
 业务码按类别分段，明细只在契约与 `ResultCode` 里维护，此处不重复：
 
 | 段位 | 含义 | 典型码 |
 |---|---|---|
 | `EC-400xx` | 参数与请求格式 | `EC-40001` / `EC-40002` / `EC-40003` |
-| `EC-401xx` | 登录与令牌 | `EC-40101` / `EC-40102` |
+| `EC-401xx` | 登录与令牌 | `EC-40101` / `EC-40102` / `EC-40103` / `EC-40104` / `EC-40105` |
 | `EC-403xx` | 权限与数据范围 | `EC-40301` / `EC-40302` |
 | `EC-409xx` | 状态冲突 | `EC-40902` / `EC-40903` |
 | `EC-422xx` | 字段校验 | `EC-42201` / `EC-42202` / `EC-42203` |
@@ -228,6 +266,8 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | `DB_POOL_SIZE` | `20` | Hikari 最大连接数 |
 | `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6379` | Redis 地址 |
 | `REDIS_DATABASE` / `REDIS_PASSWORD` | `0` / 空 | Redis 库号与口令 |
+| `JWT_SECRET` | 32 位开发用默认值 | 令牌签名密钥，**生产必须覆盖**；少于 32 字符启动失败 |
+| `JWT_TTL_HOURS` | `8` | 令牌有效期（小时），同时决定吊销名单的 TTL 上限 |
 | `LOG_LEVEL_APP` | `debug` | 业务包日志级别，生产建议 `info` |
 
 固定项，改动前先确认影响：
@@ -249,7 +289,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，七个文件按文件名前缀数字 **01 → 07** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，九个文件按文件名前缀数字 **01 → 09** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -266,11 +306,16 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/06_create_student_table.sql
 # 07 学生种子（4 人，覆盖三个班级，身份证号均通过校验位）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/07_insert_student_seed.sql
+# 08 账号表 sys_user（登录、角色、学生关联、临时授权位）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/08_create_user_table.sql
+# 09 账号种子（7 个演示账号 + 1 个无授权管理员，密码统一 Passw0rd!）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/09_insert_user_seed.sql
 
-# 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4
+# 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
   "select count(*) total, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where section_code='BASIC';
-   select count(*) students from stu_student;"
+   select count(*) students from stu_student;
+   select count(*) users from sys_user;"
 ```
 
 > **存量库升级**：老库没有 `arc_field_def.source_field` 列，先跑 `05`（先 ALTER 再回填，可重复执行），
@@ -284,7 +329,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 07` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 09` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 
@@ -326,53 +371,76 @@ mvn -f backend/pom.xml clean package
 ### 启动后验证
 
 ```bash
-# 0) 健康检查
-curl http://127.0.0.1:8080/api/actuator/health
+BASE=http://127.0.0.1:8080/api
 
-# 1) 详情：学生视角（缺省角色即 STU），未建档时返回 DRAFT + 16 条 fieldMeta，fields 为空
-curl "http://127.0.0.1:8080/api/sections/basic/1001?academicYear=2025-2026-1"
+# 0) 健康检查：除 /auth/login 外唯一免令牌的入口
+curl $BASE/actuator/health
 
-# 2) 保存草稿：只提交学生可编辑字段
-curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
-  -H "Content-Type: application/json" -H "X-User-Role: STU" -H "X-User-Id: 1001" \
+# 1) 登录拿令牌（演示账号密码统一 Passw0rd!）。学生看本人、辅导员看本班、管理员需授权
+login() { curl -s -X POST $BASE/auth/login -H "Content-Type: application/json" \
+  -d "{\"username\":\"$1\",\"password\":\"Passw0rd!\"}" \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'; }
+STU=$(login 2023010101); COU=$(login 9001); ADMIN0=$(login 9004)
+echo "令牌长度 ${#STU}"
+
+# 2) 当前登录用户：刷新页面后前端靠它恢复登录态
+curl $BASE/auth/me -H "Authorization: Bearer $STU"
+
+# 3) 不带令牌：401 / EC-40101；伪造 X-User-Role 头同样无效（身份只来自令牌）
+curl "$BASE/sections/basic/1001?academicYear=2025-2026-1"
+
+# 4) 详情：未建档时返回 DRAFT + 16 条 fieldMeta，fields 为空
+curl "$BASE/sections/basic/1001?academicYear=2025-2026-1" -H "Authorization: Bearer $STU"
+
+# 5) 保存草稿：只提交学生可编辑字段
+curl -X PUT "$BASE/sections/basic/1001" \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $STU" \
   -d '{"academicYear":"2025-2026-1","fields":{"phone":"13800138000","email":"lin@example.edu.cn"}}'
 
-# 3) 越权写：学号由学校维护，应返回 403 / EC-40301，details 指出 basic.studentNo
-curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
-  -H "Content-Type: application/json" -H "X-User-Role: STU" \
+# 6) 越权写：学号由学校维护，应返回 403 / EC-40301，details 指出 basic.studentNo
+curl -X PUT "$BASE/sections/basic/1001" \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $STU" \
   -d '{"academicYear":"2025-2026-1","fields":{"studentNo":"2023010199"}}'
 
-# 4) 提交：必填未齐时返回 422 / EC-42202，details 列出缺失字段
-curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/submit?academicYear=2025-2026-1" \
-  -H "X-User-Role: STU"
+# 7) 提交：必填未齐时返回 422 / EC-42202，details 列出缺失字段
+curl -X POST "$BASE/sections/basic/1001/submit?academicYear=2025-2026-1" \
+  -H "Authorization: Bearer $STU"
 
-# 5) 身份证明文：仅辅导员可看，调用后 arc_change_log 与 sys_audit_log 各多一条
-curl "http://127.0.0.1:8080/api/sections/basic/1001/fields/basic.idCard/reveal?academicYear=2025-2026-1" \
-  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+# 8) 身份证明文：仅辅导员可看，调用后 arc_change_log 与 sys_audit_log 各多一条
+curl "$BASE/sections/basic/1001/fields/basic.idCard/reveal?academicYear=2025-2026-1" \
+  -H "Authorization: Bearer $COU"
 
-# 6) 提交成功后再撤回：X-User-Id 必须等于 studentId，第二次撤回返回 409 / EC-40903
-curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/withdraw?academicYear=2025-2026-1" \
-  -H "X-User-Role: STU" -H "X-User-Id: 1001"
+# 9) 撤回：只有学生本人能撤回，第二次撤回返回 409 / EC-40903
+curl -X POST "$BASE/sections/basic/1001/withdraw?academicYear=2025-2026-1" \
+  -H "Authorization: Bearer $STU"
 
-# 7) 待确认值确认：辅导员把学生改过的手机号落为正式值（无待确认值时返回 409）
-curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/fields/basic.phone/confirm?academicYear=2025-2026-1" \
-  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+# 10) 待确认值确认：辅导员把学生改过的手机号落为正式值（无待确认值时返回 409）
+curl -X POST "$BASE/sections/basic/1001/fields/basic.phone/confirm?academicYear=2025-2026-1" \
+  -H "Authorization: Bearer $COU"
 
-# 8) 待审列表：辅导员只看本班；管理员无临时授权时返回 403 / EC-40302
-curl "http://127.0.0.1:8080/api/review/tasks?sectionCode=basic&status=SUBMITTED&academicYear=2025-2026-1" \
-  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+# 11) 待审列表：辅导员只看本班；无授权管理员 9004 返回 403 / EC-40302
+curl "$BASE/review/tasks?sectionCode=basic&status=SUBMITTED&academicYear=2025-2026-1" \
+  -H "Authorization: Bearer $COU"
+curl "$BASE/review/tasks?academicYear=2025-2026-1" -H "Authorization: Bearer $ADMIN0"
 
-# 9) 审核通过：非本班辅导员返回 403 / EC-40302；退回时理由不足 10 字返回 422 / EC-42203
-curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/approve" \
-  -H "Content-Type: application/json" -H "X-User-Role: COU" -H "X-User-Id: 9001" \
+# 12) 审核通过 / 退回：非本班辅导员 403 / EC-40302；退回理由不足 10 字 422 / EC-42203
+curl -X POST "$BASE/review/basic/1001/approve" \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $COU" \
   -d '{"academicYear":"2025-2026-1","comment":"材料齐全，同意通过"}'
 
-curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/reject" \
-  -H "Content-Type: application/json" -H "X-User-Role: COU" -H "X-User-Id: 9001" \
+curl -X POST "$BASE/review/basic/1001/reject" \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $COU" \
   -d '{"academicYear":"2025-2026-1","reason":"紧急联系人电话与本人电话重复，请核对后重新提交"}'
+
+# 13) 登出后复用同一令牌：401 / EC-40101（jti 已进吊销名单）
+curl -X POST $BASE/auth/logout -H "Authorization: Bearer $STU"
+curl $BASE/auth/me -H "Authorization: Bearer $STU"
 ```
 
-> 审核通过/退回要看班级归属：需先有 `basic.classId` 且 `org_class.counselor_user_id` 等于当前 `X-User-Id`，
+> **学年要显式传**：不传时后端取当前学年（如 `2026-2027-1`），而种子数据在 `2025-2026-1`，
+> 待审列表会因学年不同返回空页——这不是权限问题。
+> **管理员数据权限**：`9003` 持临时授权可读业务数据，`9004` 无授权，正好用来对比 `EC-40302`。
+> **审核归属**：需先有 `basic.classId` 且 `org_class.counselor_user_id` 等于该辅导员的 `sys_user.id`，
 > 否则一律 `403 / EC-40302`（宁可拒绝，也不让非本班放行）。
 
 ## 九、扩展指引
@@ -402,8 +470,12 @@ curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/reject" \
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。
 - **中文乱码**：先确认库表是 `utf8mb4`，再看连接串是否带 `characterEncoding=utf8`。
 - **不要换库**：改用 PostgreSQL 需先在需求文档 `DC-03` 确认，确认前一律按 MySQL 实现。
-- **鉴权未接入**：读接口与保存接口仍不校验「当前用户是否该学生/该班辅导员」，任何调用方都能读写任意 `studentId`；
-  撤回、审核、待确认处理已强制校验本人/本班。接统一认证后必须把同样的校验补到读与写，否则不要上线。
+- **登录已接入，但数据权限要分两步看**：请求层由 `JwtAuthFilter` 统一拦未登录（`EC-40101` / `EC-40102`）；
+  业务层再由各 Service 校验「这个 `studentId` 是不是你本人 / 你班」。过了鉴权不等于有数据权限，
+  新增接口时两步都不能省。
+- **令牌密钥必须覆盖**：`JWT_SECRET` 的默认值只够本地联调，生产环境不覆盖等于任何人都能自签令牌。
+- **吊销名单 fail-open**：Redis 不可用时登出不会立即生效（令牌最多活到 `exp`），这是为可用性做的取舍；
+  不要把校验整体去掉来「解决」Redis 抖动。
 
 ## 十一、技术约定
 
@@ -417,3 +489,7 @@ curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/reject" \
 7. **敏感数据**：身份证、手机、压力自评、重大事件按文档 `BR-D05` / `BR-D07` 在接口层剔除或脱敏；日志禁止打印明文敏感字段。
 8. **数据库脚本**：`src/main/resources/db/sql/{01}_{动作}_{对象}.sql`，两位数字前缀表示执行顺序，连续不跳号，已执行脚本禁止修改。
 9. **注释引用**：业务代码注释标注需求编号（如 `S-1-05`、`BR-S02`、`EC-42202`），便于回溯与测试对齐。
+10. **认证与授权**：新增接口默认要求令牌（`JwtAuthFilter` 全局生效），确需匿名时在 `PUBLIC_PATHS` 显式登记并说明理由；
+    授权一律在 Service 层用 `UserContext` 判定，禁止把权限判断写进 Controller 或前端。
+11. **密码与令牌**：口令只存 PBKDF2 摘要（`pbkdf2$迭代$salt$hash`），任何日志、异常文案、审计记录不得出现明文或摘要；
+    令牌只经 `Authorization` 头传递，不落 URL、不落 Cookie。

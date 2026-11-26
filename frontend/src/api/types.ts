@@ -46,6 +46,29 @@ export type ProfileStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'L
 /** 平台三类角色，与后端 UserRoleEnum 一致。 */
 export type UserRole = 'STU' | 'COU' | 'ADMIN'
 
+/** 当前登录用户，对应后端 UserVO。 */
+export interface SessionUser {
+  userId: number
+  username: string
+  displayName: string
+  role: UserRole
+  /** 角色中文名 */
+  roleLabel: string
+  /** 学生账号关联的学生 ID，其他角色为空 */
+  studentId?: number
+  /** 管理员是否持临时只读授权 */
+  tempGrant: boolean
+}
+
+/** 登录结果，对应后端 LoginVO。 */
+export interface LoginResult {
+  token: string
+  tokenType: string
+  /** 有效期秒数 */
+  expiresIn: number
+  user: SessionUser
+}
+
 /**
  * 字段渲染与权限位，对应后端 FieldMetaVO。
  *

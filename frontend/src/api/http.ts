@@ -1,6 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import { clearSession, getToken } from '@/auth/session'
 import { SUCCESS_CODE } from './constants'
-import { getIdentity } from './identity'
 import type { FieldErrorDetail, Result } from './types'
 
 export { SUCCESS_CODE }
@@ -49,18 +49,15 @@ const instance = axios.create({
 })
 
 /**
- * 附带演示身份。
+ * 注入登录令牌。
  *
- * <p>后端当前从请求头识别用户（骨架期占位），这里把界面上选中的身份带过去，
- * 使字段级权限与审核权限可以被真实检验。接入登录后改为 {@code Authorization: Bearer}，
- * 本拦截器随之删除。</p>
+ * <p>身份只来自后端签发的 JWT，前端不再发送任何自封角色的请求头。
+ * 匿名接口（登录）没有令牌时不带头，避免把过期令牌带给登录接口。</p>
  */
 instance.interceptors.request.use((config) => {
-  const identity = getIdentity()
-  config.headers.set('X-User-Id', String(identity.userId))
-  config.headers.set('X-User-Role', identity.role)
-  if (identity.tempGrant) {
-    config.headers.set('X-Temp-Grant', 'true')
+  const token = getToken()
+  if (token) {
+    config.headers.set('Authorization', `Bearer ${token}`)
   }
   return config
 })
@@ -96,8 +93,32 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
 
     return body.data as T
   } catch (error) {
-    throw normalizeError(error)
+    const normalized = normalizeError(error)
+    // 401 意味着令牌缺失、过期或被吊销：清掉本地登录态并回到登录页。
+    // 登录接口自身的 401 是「账号或密码错误」，必须留给页面提示，不能跳转。
+    if (normalized.httpStatus === 401 && !isLoginRequest(config)) {
+      clearSession()
+      redirectToLogin()
+    }
+    throw normalized
   }
+}
+
+function isLoginRequest(config: AxiosRequestConfig): boolean {
+  return (config.url ?? '').includes('/auth/login')
+}
+
+/** 记住当前页面，登录后回到原处；已经在登录页时不重复跳转。 */
+function redirectToLogin(): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const { pathname, search, hash } = window.location
+  if (pathname.endsWith('/login')) {
+    return
+  }
+  const redirect = encodeURIComponent(pathname + search + hash)
+  window.location.assign(`/login?redirect=${redirect}`)
 }
 
 function normalizeError(error: unknown): ApiError {

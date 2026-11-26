@@ -17,12 +17,25 @@ server.listen({ onUnhandledRequest: 'error' })
 const BASE = 'http://localhost/api'
 const YEAR = '2025-2026-1'
 
-const STU_1001 = { 'X-User-Id': '1001', 'X-User-Role': 'STU' }
-const STU_1004 = { 'X-User-Id': '1004', 'X-User-Role': 'STU' }
-const COU_9001 = { 'X-User-Id': '9001', 'X-User-Role': 'COU' }
-const COU_9002 = { 'X-User-Id': '9002', 'X-User-Role': 'COU' }
-const ADMIN = { 'X-User-Id': '9003', 'X-User-Role': 'ADMIN' }
-const ADMIN_GRANT = { ...ADMIN, 'X-Temp-Grant': 'true' }
+/** 登录拿令牌：mock 的鉴权与后端同构，除登录外都需要 Bearer。 */
+async function authHeaders(username: string, password: string): Promise<Record<string, string>> {
+  const response = await call('/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (response.body.code !== '0') {
+    throw new Error(`登录失败 ${username}: ${response.body.code}`)
+  }
+  return { Authorization: `Bearer ${response.body.data.token}` }
+}
+
+const STU_1001 = await authHeaders('2024010101', 'Passw0rd!')
+const STU_1004 = await authHeaders('2024010301', 'Passw0rd!')
+const COU_9001 = await authHeaders('cou9001', 'Passw0rd!')
+const COU_9002 = await authHeaders('cou9002', 'Passw0rd!')
+const ADMIN = await authHeaders('admin0', 'Passw0rd!')
+const ADMIN_GRANT = await authHeaders('admin', 'Passw0rd!')
 
 async function call(path: string, init: RequestInit = {}) {
   const response = await fetch(BASE + path, init)
@@ -42,6 +55,29 @@ const results: string[] = []
 function check(name: string, pass: boolean, detail: string) {
   results.push(`${pass ? 'PASS' : 'FAIL'}  ${name}  ${detail}`)
 }
+
+// 0. 鉴权：未登录、错误密码、会话信息
+const anonymous = await call(`/sections/basic/1001?academicYear=${YEAR}`)
+check('未登录访问受保护接口 401', anonymous.status === 401 && anonymous.body.code === 'EC-40101', `status=${anonymous.status} code=${anonymous.body.code}`)
+
+const badLogin = await call('/auth/login', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ username: '2024010101', password: 'wrong' }),
+})
+check('错误密码 401', badLogin.status === 401 && badLogin.body.code === 'EC-40104', `status=${badLogin.status} code=${badLogin.body.code}`)
+
+const me = await call('/auth/me', { headers: STU_1001 })
+check(
+  '会话信息',
+  me.status === 200 && me.body.data.role === 'STU' && me.body.data.studentId === 1001,
+  `role=${me.body.data?.role} studentId=${me.body.data?.studentId}`,
+)
+
+const spoofed = await call(`/review/tasks?academicYear=${YEAR}`, {
+  headers: { 'X-User-Id': '9001', 'X-User-Role': 'COU' },
+})
+check('伪造身份请求头无效', spoofed.status === 401, `status=${spoofed.status} code=${spoofed.body.code}`)
 
 // 1. 学生查看自己的草稿：敏感字段脱敏、字段清单来自 fieldMeta
 const detail = await call(`/sections/basic/1001?academicYear=${YEAR}`, { headers: STU_1001 })

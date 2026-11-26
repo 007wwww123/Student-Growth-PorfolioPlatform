@@ -245,6 +245,87 @@ const CLASS_COUNSELOR: Record<string, number> = {
   DZ2401: 9002,
 }
 
+/** mock 账号，与 db/sql/09_insert_user_seed.sql 一致（统一密码 Passw0rd!）。 */
+interface MockAccount {
+  username: string
+  password: string
+  userId: number
+  role: UserRole
+  displayName: string
+  studentId?: number
+  tempGrant: boolean
+}
+
+const ACCOUNTS: MockAccount[] = [
+  { username: '2024010101', password: 'Passw0rd!', userId: 1001, role: 'STU', displayName: '李明', studentId: 1001, tempGrant: false },
+  { username: '2024010102', password: 'Passw0rd!', userId: 1002, role: 'STU', displayName: '王芳', studentId: 1002, tempGrant: false },
+  { username: '2024010201', password: 'Passw0rd!', userId: 1003, role: 'STU', displayName: '陈晨', studentId: 1003, tempGrant: false },
+  { username: '2024010301', password: 'Passw0rd!', userId: 1004, role: 'STU', displayName: '赵敏', studentId: 1004, tempGrant: false },
+  { username: 'cou9001', password: 'Passw0rd!', userId: 9001, role: 'COU', displayName: '辅导员·软件', tempGrant: false },
+  { username: 'cou9002', password: 'Passw0rd!', userId: 9002, role: 'COU', displayName: '辅导员·电子', tempGrant: false },
+  { username: 'admin', password: 'Passw0rd!', userId: 9003, role: 'ADMIN', displayName: '系统管理员', tempGrant: true },
+  { username: 'admin0', password: 'Passw0rd!', userId: 9004, role: 'ADMIN', displayName: '管理员·无授权', tempGrant: false },
+]
+
+const ROLE_LABELS: Record<UserRole, string> = { STU: '学生', COU: '辅导员', ADMIN: '管理员' }
+
+/** 请求身份，等价于后端 CurrentUser。 */
+export interface MockIdentity {
+  userId: number
+  role: UserRole
+  tempGrant: boolean
+  displayName: string
+  username: string
+  studentId?: number
+}
+
+/** 登录成功后用于伪造令牌：mock.<userId>.<role>.<grant>。 */
+export function loginUser(username: string, password: string): { token: string; user: MockIdentity } {
+  const account = ACCOUNTS.find((item) => item.username === username)
+  if (!account || account.password !== password) {
+    throw new MockError('EC-40104', '账号或密码错误', 401)
+  }
+  const identity = toIdentity(account)
+  return { token: tokenOf(identity), user: identity }
+}
+
+/** 解析令牌；格式不对或账号不存在都视为未登录。 */
+export function authenticate(token: string | null): MockIdentity | null {
+  if (!token) {
+    return null
+  }
+  const parts = token.split('.')
+  if (parts.length !== 4 || parts[0] !== 'mock') {
+    return null
+  }
+  const userId = Number(parts[1])
+  const account = ACCOUNTS.find((item) => item.userId === userId)
+  if (!account || account.role !== parts[2]) {
+    return null
+  }
+  return toIdentity(account)
+}
+
+function toIdentity(account: MockAccount): MockIdentity {
+  return {
+    userId: account.userId,
+    role: account.role,
+    tempGrant: account.tempGrant,
+    displayName: account.displayName,
+    username: account.username,
+    studentId: account.studentId,
+  }
+}
+
+function tokenOf(identity: MockIdentity): string {
+  return `mock.${identity.userId}.${identity.role}.${identity.tempGrant ? 1 : 0}`
+}
+
+/** 角色中文名，登录响应里带给前端展示。 */
+export function roleLabelOf(role: UserRole): string {
+  return ROLE_LABELS[role] ?? role
+}
+
 const CLASS_NAMES: Record<string, string> = {
   RJ2401: '软件2401',
   RJ2402: '软件2402',
