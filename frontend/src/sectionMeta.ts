@@ -124,3 +124,19 @@ export const STATUS_LABELS: Record<ProfileStatus, string> = {
 /** 骨架期默认联调参数，接入登录后从会话中读取。 */
 export const DEMO_STUDENT_ID = 1001
 export const DEMO_ACADEMIC_YEAR = '2025-2026-1'
+
+/**
+ * 按当前日期推算学年学期，规则与后端 AcademicYearUtils 一致：
+ * 9 月起为秋季学期（-1），2–8 月为春季学期（-2），1 月仍算上一学年的秋季。
+ */
+export function currentAcademicYear(now: Date = new Date()): string {
+  const month = now.getMonth() + 1
+  const year = now.getFullYear()
+  if (month >= 9) {
+    return `${year}-${year + 1}-1`
+  }
+  if (month <= 1) {
+    return `${year - 1}-${year}-1`
+  }
+  return `${year - 1}-${year}-2`
+}

@@ -1,20 +1,65 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { DEMO_IDENTITIES, getIdentity, setIdentity, type DemoIdentity } from '@/api/identity'
 import { SECTIONS } from '@/sectionMeta'
 
 const route = useRoute()
+
+/**
+ * 演示身份切换（骨架期占位）。
+ *
+ * <p>后端尚未接入登录，身份从请求头读取；这里提供一个切换器，便于在不改代码的情况下
+ * 分别以学生、辅导员视角验证权限与审核流程。接入登录后整体删除。</p>
+ */
+const identity = ref<DemoIdentity>(getIdentity())
+
+const identityKey = computed({
+  get: () => `${identity.value.role}-${identity.value.userId}`,
+  set: (value: string) => {
+    const found = DEMO_IDENTITIES.find((item) => `${item.role}-${item.userId}` === value)
+    if (!found) {
+      return
+    }
+    setIdentity(found)
+    identity.value = found
+    // 切换后整页重载：板块页与列表页都按身份取数，避免残留上一个身份的数据
+    window.location.reload()
+  },
+})
 </script>
 
 <template>
   <div class="layout">
     <header class="layout__header">
-      <div class="layout__brand">
-        <span class="layout__logo">成长档案</span>
-        <span class="layout__subtitle">学生成长档案平台 · 前端骨架</span>
+      <div class="layout__top">
+        <div class="layout__brand">
+          <span class="layout__logo">成长档案</span>
+          <span class="layout__subtitle">学生成长档案平台</span>
+        </div>
+        <label class="layout__identity">
+          <span class="layout__identity-label">演示身份</span>
+          <select v-model="identityKey" class="layout__identity-select">
+            <option
+              v-for="item in DEMO_IDENTITIES"
+              :key="`${item.role}-${item.userId}`"
+              :value="`${item.role}-${item.userId}`"
+            >
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
       </div>
       <nav class="layout__nav">
         <RouterLink to="/" class="layout__nav-item" :class="{ 'is-active': route.name === 'home' }">
           总览
+        </RouterLink>
+        <RouterLink
+          to="/review"
+          class="layout__nav-item"
+          :class="{ 'is-active': route.name === 'review-list' || route.name === 'review-detail' }"
+        >
+          审核工作台
         </RouterLink>
         <RouterLink
           v-for="section in SECTIONS"
@@ -51,11 +96,18 @@ const route = useRoute()
   padding: 12px 24px;
 }
 
+.layout__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
 .layout__brand {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 10px;
 }
 
 .layout__logo {
@@ -67,6 +119,23 @@ const route = useRoute()
 .layout__subtitle {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.layout__identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.layout__identity-select {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--color-text);
+  font-size: 12.5px;
 }
 
 .layout__nav {

@@ -53,6 +53,18 @@ const router = createRouter({
       meta: { title: '导师寄语' },
     },
     {
+      path: '/review',
+      name: 'review-list',
+      component: () => import('@/views/review/ReviewListView.vue'),
+      meta: { title: '审核工作台' },
+    },
+    {
+      path: '/review/:code/:studentId',
+      name: 'review-detail',
+      component: () => import('@/views/review/ReviewDetailView.vue'),
+      meta: { title: '审核详情' },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),
