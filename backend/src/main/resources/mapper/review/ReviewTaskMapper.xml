@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  审核列表查询：六个板块共用。
+
+  学生的班级目前存在基本信息板块的 basic.classId 字段里，因此这里用 EXISTS 关联
+  「同学生同学年的 BASIC 板块」再取班级；接入教务学生主数据后，把这两段 EXISTS
+  换成 org_student 关联即可，接口与上层逻辑不变。
+-->
+<mapper namespace="com.college.growth.review.mapper.ReviewTaskMapper">
+
+    <select id="selectTaskPage" resultType="com.college.growth.common.profile.entity.ArcProfile">
+        SELECT p.*
+        FROM arc_profile p
+        WHERE 1 = 1
+        <if test="sectionCode != null and sectionCode != ''">
+            AND p.section_code = #{sectionCode}
+        </if>
+        <if test="status != null and status != ''">
+            AND p.status = #{status}
+        </if>
+        <if test="academicYear != null and academicYear != ''">
+            AND p.academic_year = #{academicYear}
+        </if>
+        <if test="classId != null and classId != ''">
+            AND EXISTS (
+                SELECT 1
+                FROM arc_profile bp
+                JOIN arc_profile_item ci ON ci.profile_id = bp.id
+                WHERE bp.student_id = p.student_id
+                  AND bp.academic_year = p.academic_year
+                  AND bp.section_code = 'BASIC'
+                  AND ci.field_code = 'basic.classId'
+                  AND ci.value_text = #{classId}
+            )
+        </if>
+        <if test="counselorId != null">
+            AND EXISTS (
+                SELECT 1
+                FROM arc_profile bp
+                JOIN arc_profile_item ci ON ci.profile_id = bp.id
+                JOIN org_class c ON c.class_code = ci.value_text
+                WHERE bp.student_id = p.student_id
+                  AND bp.academic_year = p.academic_year
+                  AND bp.section_code = 'BASIC'
+                  AND ci.field_code = 'basic.classId'
+                  AND c.counselor_user_id = #{counselorId}
+            )
+        </if>
+        ORDER BY p.submitted_at DESC, p.id DESC
+    </select>
+
+    <select id="selectStudentFields" resultType="com.college.growth.review.mapper.StudentFieldRow">
+        SELECT bp.student_id AS studentId,
+               ci.field_code AS fieldCode,
+               ci.value_text AS valueText
+        FROM arc_profile bp
+        JOIN arc_profile_item ci ON ci.profile_id = bp.id
+        WHERE bp.section_code = 'BASIC'
+          AND bp.academic_year = #{academicYear}
+          AND bp.student_id IN
+        <foreach collection="studentIds" item="studentId" open="(" separator="," close=")">
+            #{studentId}
+        </foreach>
+          AND ci.field_code IN
+        <foreach collection="fieldCodes" item="fieldCode" open="(" separator="," close=")">
+            #{fieldCode}
+        </foreach>
+    </select>
+
+</mapper>

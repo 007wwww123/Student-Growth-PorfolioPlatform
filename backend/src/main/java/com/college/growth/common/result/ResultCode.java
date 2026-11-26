@@ -23,6 +23,7 @@ public enum ResultCode {
 
     STATE_CONFLICT("EC-40902", 409, "当前状态不允许该操作"),
     WITHDRAW_EXCEEDED("EC-40903", 409, "撤回次数已用完"),
+    VERSION_CONFLICT("EC-40907", 409, "内容已被他人修改，请刷新后重试"),
 
     FIELD_VALIDATION_FAILED("EC-42201", 422, "字段校验未通过"),
     REQUIRED_FIELD_MISSING("EC-42202", 422, "必填内容未填写"),

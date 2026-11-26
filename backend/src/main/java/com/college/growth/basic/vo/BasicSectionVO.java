@@ -1,13 +1,17 @@
 package com.college.growth.basic.vo;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import lombok.Data;
 
 /**
  * 板块详情视图：基本信息（BASIC）。
  *
- * <p>骨架阶段字段值以 {@code fieldCode -> value} 的松散结构返回，
- * 待 {@code arc_profile_item} 与字段定义落地后，再按需求文档 4.2 收敛为强类型字段。</p>
+ * <p>信封字段（学生、学年、板块、状态）与 {@code fields} 分开：
+ * 前端按 {@code fieldMeta} 渲染表单与权限位，{@code fields} 只提供值，
+ * 不再由前端硬编码「哪些字段只读」——那是服务端算出来的结论。</p>
  */
 @Data
 public class BasicSectionVO {
@@ -27,9 +31,35 @@ public class BasicSectionVO {
     /** 板块状态，取值见 ProfileStatusEnum。 */
     private String status;
 
-    /** 字段值集合，key 为字段编码（如 {@code basic.xxx}）。 */
+    /** 字段值，键为字段短名（如 studentNo）；不可见字段不返回，敏感字段默认脱敏。 */
     private Map<String, Object> fields;
 
-    /** 是否可编辑：由来源标记、角色、状态三层同时判定（BR-F01）。 */
+    /** 字段渲染与权限位，按 sort_no 排序，仅含当前角色可见的字段。 */
+    private List<FieldMetaVO> fieldMeta;
+
+    /** 是否存在任一可编辑字段：由来源、角色、状态三层同时判定（BR-F01）。 */
     private Boolean editable;
+
+    /** 完成度百分比。 */
+    private BigDecimal completeness;
+
+    /** 提交次数。 */
+    private Integer submitCount;
+
+    /** 撤回次数。 */
+    private Integer withdrawCount;
+
+    /** 最近一次提交时间。 */
+    private LocalDateTime submittedAt;
+
+    /**
+     * 最近一次退回理由（BR-S04：理由对学生可见）。
+     *
+     * <p>仅在状态为「已退回」时返回；学生重新提交后该值置空，避免上一次的退回意见
+     * 被当成当前结论。</p>
+     */
+    private String reviewReason;
+
+    /** 最近一次退回时间，与 {@link #reviewReason} 同时返回。 */
+    private LocalDateTime reviewedAt;
 }

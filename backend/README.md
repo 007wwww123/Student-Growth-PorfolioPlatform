@@ -41,14 +41,20 @@ backend/
 │   ├── main/
 │   │   ├── java/com/college/growth/
 │   │   │   ├── GrowthPlatformApplication.java   # 启动入口
-│   │   │   ├── common/                          # 平台公共层
-│   │   │   │   ├── constant/                    # 通用常量（traceId 键名等）
-│   │   │   │   ├── enums/                       # SectionCodeEnum、ProfileStatusEnum
+│   │   │   ├── common/                          # 平台公共层（六板块复用）
+│   │   │   │   ├── constant/                    # 通用常量（traceId 键名、板块数量）
+│   │   │   │   ├── context/                     # CurrentUser、UserContext（骨架期请求头身份）
+│   │   │   │   ├── enums/                       # SectionCodeEnum、ProfileStatusEnum、UserRoleEnum
 │   │   │   │   ├── exception/                   # BusinessException、GlobalExceptionHandler
+│   │   │   │   ├── field/                       # 字段定义、校验器注册表、脱敏规则
+│   │   │   │   ├── log/                         # 变更日志（arc_change_log）与审计日志（sys_audit_log）
+│   │   │   │   ├── org/                         # 班级实体、学生班级与审核权解析
+│   │   │   │   ├── profile/                     # 板块实例/字段值、值编解码、待确认区服务
 │   │   │   │   ├── result/                      # Result、ResultCode、FieldErrorDetail、PageResult
-│   │   │   │   ├── util/                        # TextUtils（文本规范化）
-│   │   │   │   └── web/                         # TraceIdFilter
+│   │   │   │   ├── util/                        # 文本规范化、学年计算
+│   │   │   │   └── web/                         # TraceIdFilter、UserContextFilter
 │   │   │   ├── config/                          # JacksonConfig、MybatisPlusConfig
+│   │   │   ├── review/                          # 公共审核模块（六板块共用，见第六节）
 │   │   │   ├── basic/                           # 板块一 基本信息
 │   │   │   ├── academic/                        # 板块二 学业发展
 │   │   │   ├── interest/                        # 板块三 兴趣特长
@@ -56,7 +62,9 @@ backend/
 │   │   │   ├── career/                          # 板块五 职业规划
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
-│   │       └── application.yml                   # 端口、数据源、Redis、Jackson、MyBatis-Plus、日志
+│   │       ├── application.yml                   # 端口、数据源、Redis、Jackson、MyBatis-Plus、日志
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 04 顺序执行
+│   │       └── mapper/review/                    # 待审列表 SQL（复杂查询走 XML）
 │   └── test/java/com/college/growth/
 │       └── common/util/TextUtilsTest.java        # 文本规范化单元测试（3 条用例）
 └── README.md
@@ -133,21 +141,67 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
                  RETURNED（已退回） → 可再次提交
 ```
 
-仅 `DRAFT` / `RETURNED` 允许保存与提交。
+仅 `DRAFT` / `RETURNED` 允许保存与提交。状态流转只能调用公共审核模块
+（`com.college.growth.review`），板块实现不得直接改 `arc_profile.status`。
+
+板块一已落地的支撑表（其余板块复用，只是 `section_code` 不同）：
+
+| 表 | 作用 | 板块一的量 |
+|---|---|---|
+| `arc_field_def` | 字段定义：类型、必填、来源、可见/可编辑角色、校验标识、枚举 | 16 条 |
+| `arc_profile_item` | 字段值，一行一个字段；`pending_*` 为待辅导员确认区（BR-F06） | 按需生成 |
+| `arc_change_log` | 字段修改与状态流转留痕，与业务同事务（BR-S11） | 按操作生成 |
+| `sys_audit_log` | 审计日志：提交、撤回、审核、查看明文、处理待确认值，不存业务明文 | 按操作生成 |
+
+字段的类型、校验、必填、权限全部读定义表，代码里不再维护第二份字段清单（BR-F02）。
+新增一个字段＝加一条 `arc_field_def`，不需要改 Service、DTO 或接口契约。
 
 ## 六、核心接口
 
-接口按板块统一，六个板块共用三个路径模板，`{code}` 取 `basic` / `academic` / `interest` / `life` / `career` / `mentor`：
+板块级接口按统一路径暴露，`{code}` 取 `basic` / `academic` / `interest` / `life` / `career` / `mentor`：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/sections/{code}/{studentId}?academicYear=` | 查询板块详情（含字段与可编辑位） |
-| PUT | `/api/sections/{code}/{studentId}` | 保存草稿，触发 `@Valid` 校验 |
-| POST | `/api/sections/{code}/{studentId}/submit?academicYear=` | 提交板块 |
+| GET | `/api/sections/{code}/{studentId}?academicYear=` | 查询板块详情（含 `fieldMeta` 字段权限位） |
+| PUT | `/api/sections/{code}/{studentId}` | 保存草稿，逐字段校验后写入 |
+| POST | `/api/sections/{code}/{studentId}/submit?academicYear=` | 提交板块，校验必填后交状态机转 `SUBMITTED` |
+| POST | `/api/sections/{code}/{studentId}/withdraw?academicYear=` | 撤回提交（仅学生本人，限一次） |
+| GET | `/api/sections/{code}/{studentId}/fields/{fieldCode}/reveal` | 查看敏感字段明文（仅 COU/临时授权管理员，写审计） |
+| POST | `/api/sections/{code}/{studentId}/fields/{fieldCode}/confirm` | 确认待确认值（仅本班辅导员） |
+| POST | `/api/sections/{code}/{studentId}/fields/{fieldCode}/reject` | 驳回待确认值（仅本班辅导员） |
 | GET | `/api/actuator/health` | 健康检查（actuator） |
 
-> **当前状态：三个业务接口均已注册进容器，但 Service 为占位实现，统一返回 `501 / EC-50000`。**
-> 这是骨架期的预期行为，用于让前端先确认路由、状态码与响应结构。请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
+审核是跨板块能力，单独一组路径（六个板块共用，不复制到各板块）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/review/tasks?sectionCode=&status=&classId=&academicYear=&pageNum=&pageSize=` | 待审列表，辅导员只看本班 |
+| POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
+| POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用**；
+> 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
+> 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
+
+### 公共审核模块（`com.college.growth.review`）
+
+| 类 | 职责 |
+|---|---|
+| `ProfileWorkflowService` | 唯一状态机：提交、撤回、通过、退回，含角色与状态校验、双日志、完成标记重算 |
+| `ReviewTaskService` | 待审列表：跨板块一条 SQL，按班级/状态/学年筛选，数据范围按辅导员限制 |
+| `ReviewDecisionService` | 审核结论：定位板块实例后交状态机执行，板块差异只体现为 `sectionCode` |
+| `ReviewController` | `/api/review/**` 三个接口 |
+
+新增板块时**不需要**写审核代码：只要板块的提交动作调用 `ProfileWorkflowService.submit(...)`，
+就能被审核模块纳管。板块负责「内容是否齐全」，审核模块负责「谁能改、何时能改、留什么痕」。
+
+骨架期没有接入统一认证，当前用户由请求头模拟（**只用于本地联调，不是鉴权**）：
+
+| 请求头 | 取值 | 说明 |
+|---|---|---|
+| `X-User-Id` | 数字，缺省 0 | 操作人 ID，写入变更日志 |
+| `X-User-Role` | `STU` / `COU` / `ADMIN`，缺省 `STU` | 决定字段可见与可编辑；`ADMIN` 默认看不到业务字段 |
+| `X-Temp-Grant` | `true` / `false` | 管理员临时只读授权（审批通过后最长 4 小时） |
 
 业务码按类别分段，明细只在契约与 `ResultCode` 里维护，此处不重复：
 
@@ -193,6 +247,39 @@ docker compose -f ../docker-compose.yml up -d
 docker compose up -d
 ```
 
+### 数据库初始化（首次启动前）
+
+建库脚本在 `src/main/resources/db/sql/`，四个文件按文件名前缀数字 **01 → 04** 顺序执行；脚本幂等，可重复跑：
+
+```bash
+# 01 建表：板块实例、字段定义、字段值、变更日志、班级
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/01_create_core_tables.sql
+# 02 班级种子（basic.classId 的引用对象，同时决定专业推导）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/02_insert_class_seed.sql
+# 03 板块一 16 个字段定义
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/03_insert_basic_field_defs.sql
+# 04 系统审计日志表（状态流转、审核、查看明文、待确认处理都要写）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/04_create_audit_log.sql
+
+# 自检：应为 total=16、required_cnt=8
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
+  "select count(*) total, sum(required=1) required_cnt from arc_field_def where section_code='BASIC';"
+```
+
+> **必须带 `--default-character-set=utf8mb4`**：中文 Windows 的 mysql 客户端默认 `gbk`，而脚本是 UTF-8，
+> 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
+
+> Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01/02/03/04` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__`、`V3__` 前缀并移入 `db/migration` 即可纳管。
+
+**已知版本差异**
+
+| 项 | 说明 |
+|---|---|
+| `SENSITIVE` 保留字 | 自 MySQL 9.0 起 `SENSITIVE` 是保留字（8.0 不是）。字段定义的敏感级别列已改名 `sensitive_level`，**不要改回 `sensitive`**，否则建表与 MyBatis-Plus 生成的 SQL 都会报 1064。 |
+| `VALUES()` 弃用 | 种子里 `ON DUPLICATE KEY UPDATE col = VALUES(col)` 在 MySQL 8.0.20+ 会告警（未来版本将移除），当前不影响执行；升级到移除该语法的版本前需改为 `AS new` 别名写法。 |
+| 实测版本 | 已在 MySQL 9.7.0 上跑通全部脚本与接口；`docker-compose.yml` 指定的是 8.0.32，两者均兼容。 |
+
 ## 八、启动与测试
 
 ### IntelliJ IDEA
@@ -225,31 +312,70 @@ mvn -f backend/pom.xml clean package
 ### 启动后验证
 
 ```bash
-# 健康检查
+# 0) 健康检查
 curl http://127.0.0.1:8080/api/actuator/health
 
-# 冒烟：应为 501 与 EC-50000
+# 1) 详情：学生视角（缺省角色即 STU），未建档时返回 DRAFT + 16 条 fieldMeta，fields 为空
 curl "http://127.0.0.1:8080/api/sections/basic/1001?academicYear=2025-2026-1"
 
-# 字段校验：应为 422 与 EC-42201，details 带字段明细
+# 2) 保存草稿：只提交学生可编辑字段
 curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"张","studentNo":"123","email":"bad"}'
+  -H "Content-Type: application/json" -H "X-User-Role: STU" -H "X-User-Id: 1001" \
+  -d '{"academicYear":"2025-2026-1","fields":{"phone":"13800138000","email":"lin@example.edu.cn"}}'
+
+# 3) 越权写：学号由学校维护，应返回 403 / EC-40301，details 指出 basic.studentNo
+curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
+  -H "Content-Type: application/json" -H "X-User-Role: STU" \
+  -d '{"academicYear":"2025-2026-1","fields":{"studentNo":"2023010199"}}'
+
+# 4) 提交：必填未齐时返回 422 / EC-42202，details 列出缺失字段
+curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/submit?academicYear=2025-2026-1" \
+  -H "X-User-Role: STU"
+
+# 5) 身份证明文：仅辅导员可看，调用后 arc_change_log 与 sys_audit_log 各多一条
+curl "http://127.0.0.1:8080/api/sections/basic/1001/fields/basic.idCard/reveal?academicYear=2025-2026-1" \
+  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+
+# 6) 提交成功后再撤回：X-User-Id 必须等于 studentId，第二次撤回返回 409 / EC-40903
+curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/withdraw?academicYear=2025-2026-1" \
+  -H "X-User-Role: STU" -H "X-User-Id: 1001"
+
+# 7) 待确认值确认：辅导员把学生改过的手机号落为正式值（无待确认值时返回 409）
+curl -X POST "http://127.0.0.1:8080/api/sections/basic/1001/fields/basic.phone/confirm?academicYear=2025-2026-1" \
+  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+
+# 8) 待审列表：辅导员只看本班；管理员无临时授权时返回 403 / EC-40302
+curl "http://127.0.0.1:8080/api/review/tasks?sectionCode=basic&status=SUBMITTED&academicYear=2025-2026-1" \
+  -H "X-User-Role: COU" -H "X-User-Id: 9001"
+
+# 9) 审核通过：非本班辅导员返回 403 / EC-40302；退回时理由不足 10 字返回 422 / EC-42203
+curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/approve" \
+  -H "Content-Type: application/json" -H "X-User-Role: COU" -H "X-User-Id: 9001" \
+  -d '{"academicYear":"2025-2026-1","comment":"材料齐全，同意通过"}'
+
+curl -X POST "http://127.0.0.1:8080/api/review/basic/1001/reject" \
+  -H "Content-Type: application/json" -H "X-User-Role: COU" -H "X-User-Id: 9001" \
+  -d '{"academicYear":"2025-2026-1","reason":"紧急联系人电话与本人电话重复，请核对后重新提交"}'
 ```
+
+> 审核通过/退回要看班级归属：需先有 `basic.classId` 且 `org_class.counselor_user_id` 等于当前 `X-User-Id`，
+> 否则一律 `403 / EC-40302`（宁可拒绝，也不让非本班放行）。
 
 ## 九、扩展指引
 
 **实现一个板块的业务**（以基本信息为例）：
 
-1. 补建表脚本（`arc_profile` 等），给实体加 `@TableName` 与 `@TableField` 映射。
-2. 在 `BasicSectionServiceImpl` 里替换占位方法体，遵守「仅 DRAFT / RETURNED 可写」。
+1. 补建表脚本（`arc_profile` 等），板块实例统一用 `common/profile/entity/ArcProfile`，不要各板块复制一份。
+2. 在 `XxxSectionServiceImpl` 里实现详情与保存，遵守「仅 DRAFT / RETURNED 可写」。
 3. 字段校验优先走定义表标识，DTO 注解只做接口层兜底。
-4. 状态变更与变更日志放在同一事务。
+4. 提交时先做板块级校验，再调用 `ProfileWorkflowService.submit(...)`；**不要自己改 `status`、不要自己写状态日志**。
 5. 用 curl 或集成测试验证正常路径、校验失败、状态冲突三类分支。
 
-**加字段**：先改 `SaveDTO` 与 `openapi.yaml`，再补字段定义表数据，前端 `sectionMeta.ts` 加一行即可渲染，不需要改页面结构。
+**加字段**：只加一条 `arc_field_def` 数据（含 validator 与 rule_json），并在 `openapi.yaml` 的示例里补值；
+后端 DTO、校验器、前端渲染都不需要改——保存接口的入参是 `{academicYear, fields}` 映射。
 
-**加板块**：复制任一同构板块的 11 个类改名，在 `SectionCodeEnum` 加枚举，路由自动可用；同步补契约与前端路由。
+**加板块**：复制任一同构板块的类改名，在 `SectionCodeEnum` 加枚举，路由自动可用；
+审核无需另写，接入 `ProfileWorkflowService` 即可被 `/review/**` 纳管。
 
 **加复杂查询**：在 `src/main/resources/mapper/<板块>/` 下建 XML，禁止在 Service 里拼 SQL。
 
@@ -262,7 +388,8 @@ curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。
 - **中文乱码**：先确认库表是 `utf8mb4`，再看连接串是否带 `characterEncoding=utf8`。
 - **不要换库**：改用 PostgreSQL 需先在需求文档 `DC-03` 确认，确认前一律按 MySQL 实现。
-- **无鉴权**：当前任何调用方都能访问全部路由，数据范围校验（`EC-40302`）尚未实现，不要据此上线。
+- **鉴权未接入**：读接口与保存接口仍不校验「当前用户是否该学生/该班辅导员」，任何调用方都能读写任意 `studentId`；
+  撤回、审核、待确认处理已强制校验本人/本班。接统一认证后必须把同样的校验补到读与写，否则不要上线。
 
 ## 十一、技术约定
 
@@ -270,8 +397,9 @@ curl -X PUT "http://127.0.0.1:8080/api/sections/basic/1001" \
 2. **命名避让**：文档 9.1 的 `config` 业务模块落地时命名 `fieldconfig`，避免与 Spring 配置包 `com.college.growth.config` 冲突。
 3. **字段校验**：规则以 `arc_field_def.validator` 标识存储，代码按标识注册校验器，禁止把某字段规则硬编码在接口里。
 4. **错误码**：只从 `ResultCode` 取，不新增散落字符串；新增码值须同步 `openapi.yaml` 与需求文档 6.1。
-5. **状态流转**：严格按五状态机，不新增状态；状态变更与变更日志必须同一事务。
+5. **状态流转**：严格按五状态机，不新增状态；只能调用 `ProfileWorkflowService`，禁止板块直接改 `status`。
+   状态变更、变更日志（`arc_change_log`）与审计日志（`sys_audit_log`）必须同一事务（BR-S11）。
 6. **数据访问**：单表用 MyBatis-Plus，复杂查询写 XML；禁止在 Service 拼 SQL。
 7. **敏感数据**：身份证、手机、压力自评、重大事件按文档 `BR-D05` / `BR-D07` 在接口层剔除或脱敏；日志禁止打印明文敏感字段。
-8. **数据库迁移**：`src/main/resources/db/migration/V{n}__{描述}.sql`，编号连续不跳号，已执行脚本禁止修改。
+8. **数据库脚本**：`src/main/resources/db/sql/{01}_{动作}_{对象}.sql`，两位数字前缀表示执行顺序，连续不跳号，已执行脚本禁止修改。
 9. **注释引用**：业务代码注释标注需求编号（如 `S-1-05`、`BR-S02`、`EC-42202`），便于回溯与测试对齐。

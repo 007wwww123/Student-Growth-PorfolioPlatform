@@ -48,11 +48,27 @@ public enum SectionCodeEnum {
     }
 
     public static SectionCodeEnum fromCode(String code) {
-        for (SectionCodeEnum value : values()) {
-            if (value.code.equals(code)) {
-                return value;
+        SectionCodeEnum value = tryFromCode(code);
+        if (value == null) {
+            throw new IllegalArgumentException("未知板块编码: " + code);
+        }
+        return value;
+    }
+
+    /**
+     * 宽松解析：同时接受小写编码（{@code basic}，接口路径与前端使用）与大写枚举名
+     * （{@code BASIC}，数据库 {@code section_code} 使用），无法识别返回 null。
+     */
+    public static SectionCodeEnum tryFromCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        String value = code.trim();
+        for (SectionCodeEnum item : values()) {
+            if (item.code.equalsIgnoreCase(value) || item.name().equalsIgnoreCase(value)) {
+                return item;
             }
         }
-        throw new IllegalArgumentException("未知板块编码: " + code);
+        return null;
     }
 }

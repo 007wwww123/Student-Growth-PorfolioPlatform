@@ -2,17 +2,47 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { isApiError, type ApiError } from '@/api/http'
 import { fetchSection, saveSection, submitSection } from '@/api/sections'
-import type { SectionCode, SectionVO } from '@/api/types'
+import type { FieldMeta, SectionCode, SectionVO } from '@/api/types'
 import { DEMO_ACADEMIC_YEAR, DEMO_STUDENT_ID, SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
 
 /**
  * 板块页面的公共外壳。
  *
- * 六个板块的交互完全一致（查详情 → 改草稿 → 提交），
- * 差异只在于字段清单，因此由 sectionMeta 驱动渲染；
- * 各板块视图只负责传入 code，后续板块特有的交互（附件、证书列表等）在各自视图内扩展。
+ * 六个板块的交互完全一致（查详情 → 改草稿 → 提交），差异只在字段清单。
+ * 字段清单以服务端下发的 fieldMeta 为准（arc_field_def 是唯一来源，含控件类型、
+ * 枚举选项与「当前角色能不能写」），sectionMeta 只在接口未提供 fieldMeta 时兜底；
+ * 各板块视图只负责传入 code，板块特有交互（附件、证书列表等）在各自视图内扩展。
  */
 const props = defineProps<{ code: SectionCode }>()
+
+/** 表单控件类型：比 sectionMeta 的 FieldType 多出 select（枚举）与 file（附件）。 */
+type ControlType = 'text' | 'textarea' | 'number' | 'date' | 'tags' | 'select' | 'file'
+
+/** 渲染用的字段描述：字段定义 + 权限位。 */
+interface RenderField {
+  key: string
+  label: string
+  type: ControlType
+  editable: boolean
+  required: boolean
+  maxLength?: number
+  options?: Array<{ value: string; label: string }>
+  /** 只读原因，展示在控件下方 */
+  lockHint?: string
+}
+
+/** 后端 FieldMetaVO.fieldType 到控件的映射。 */
+const CONTROL_BY_FIELD_TYPE: Record<string, ControlType> = {
+  TEXT: 'text',
+  TEXTAREA: 'textarea',
+  NUMBER: 'number',
+  DATE: 'date',
+  SELECT: 'select',
+  RADIO: 'select',
+  MULTI_SELECT: 'tags',
+  CHECKBOX: 'tags',
+  FILE: 'file',
+}
 
 const meta = computed(() => SECTION_MAP[props.code])
 const section = ref<SectionVO | null>(null)
@@ -27,6 +57,63 @@ const editable = computed(() => section.value?.editable ?? true)
 const statusLabel = computed(() =>
   section.value ? (STATUS_LABELS[section.value.status] ?? section.value.status) : '',
 )
+
+/**
+ * 退回提示（BR-S04：退回理由必须让学生看见）。
+ *
+ * 理由由后端详情接口带回，仅在「已退回」状态下下发；学生重新提交后后端不再返回，
+ * 这里自然隐藏，不会把旧意见当成当前结论。
+ */
+const returnNote = computed(() => {
+  const current = section.value
+  if (!current?.reviewReason) {
+    return null
+  }
+  return { reason: current.reviewReason, at: current.reviewedAt ?? '' }
+})
+
+/** 完成度由服务端按必填字段现算，前端只负责展示。 */
+const completenessText = computed(
+  () => `${Number(section.value?.completeness ?? 0).toFixed(2).replace(/\.00$/, '')}%`,
+)
+
+/**
+ * 表单字段：优先用服务端 fieldMeta（含权限位与枚举选项），
+ * 接口尚未提供时回落到 sectionMeta 的骨架配置。
+ */
+const formFields = computed<RenderField[]>(() => {
+  const metas = section.value?.fieldMeta ?? []
+  if (metas.length > 0) {
+    return metas.map((item) => ({
+      key: item.key,
+      label: item.fieldName,
+      type: CONTROL_BY_FIELD_TYPE[item.fieldType] ?? 'text',
+      editable: item.editable === true,
+      required: item.required === true,
+      options: item.options,
+      lockHint: item.editable === true ? undefined : lockHintOf(item),
+    }))
+  }
+  return meta.value.fields.map((item) => ({
+    key: item.key,
+    label: item.label,
+    type: item.type,
+    editable: true,
+    required: false,
+    maxLength: item.maxLength,
+  }))
+})
+
+/** 只读原因：按来源与敏感级别给出可读提示，不把权限码直接抛给用户。 */
+function lockHintOf(item: FieldMeta): string {
+  if (item.source === 'SIS' || item.source === 'SYS') {
+    return '由学校维护，不可修改'
+  }
+  if (item.sensitive != null && item.sensitive >= 2) {
+    return '无权限查看完整内容'
+  }
+  return '当前状态不可修改'
+}
 
 /** 字段级错误：field -> 提示文案，用于在输入框下方就地提示。 */
 const fieldHints = computed<Record<string, string>>(() => {
@@ -49,7 +136,7 @@ function resetForm(fields: Record<string, unknown>): void {
   for (const key of Object.keys(form)) {
     delete form[key]
   }
-  for (const field of meta.value.fields) {
+  for (const field of formFields.value) {
     const raw = fields[field.key]
     if (Array.isArray(raw)) {
       form[field.key] = raw.join('、')
@@ -75,31 +162,51 @@ async function load(): Promise<void> {
   }
 }
 
-/** 把表单值按字段类型还原成后端 SaveDTO 的形状。 */
-function buildPayload(): Record<string, unknown> {
-  const payload: Record<string, unknown> = { academicYear: section.value?.academicYear ?? DEMO_ACADEMIC_YEAR }
-  for (const field of meta.value.fields) {
-    const value = (form[field.key] ?? '').trim()
+/**
+ * 组装保存请求体。
+ *
+ * <p>后端 SaveDTO 是 {@code { academicYear, fields: {...} }} 的信封结构，不是扁平表单；
+ * 同时只提交「当前角色可写」的字段——学校维护的字段（SIS/SYS）混进请求会被整体拒绝（403），
+ * 而不是忽略该字段。没有可写字段时返回 null，由调用方提示，不发无效请求。</p>
+ */
+function buildPayload(): Record<string, unknown> | null {
+  const values: Record<string, unknown> = {}
+  for (const field of formFields.value) {
+    // 附件上传尚未开放，不提交，避免把已有附件清空
+    if (!field.editable || field.type === 'file') {
+      continue
+    }
+    const raw = (form[field.key] ?? '').trim()
     if (field.type === 'tags') {
-      payload[field.key] = value
-        .split(/[,，、]/)
-        .map((item) => item.trim())
-        .filter(Boolean)
+      values[field.key] = raw === ''
+        ? null
+        : raw.split(/[,，、]/).map((item) => item.trim()).filter(Boolean)
     } else if (field.type === 'number') {
-      payload[field.key] = value === '' ? null : Number(value)
+      values[field.key] = raw === '' ? null : Number(raw)
     } else {
-      payload[field.key] = value === '' ? null : value
+      values[field.key] = raw === '' ? null : raw
     }
   }
-  return payload
+  if (Object.keys(values).length === 0) {
+    return null
+  }
+  return {
+    academicYear: section.value?.academicYear ?? DEMO_ACADEMIC_YEAR,
+    fields: values,
+  }
 }
 
 async function onSave(): Promise<void> {
-  saving.value = true
   error.value = null
   notice.value = ''
+  const payload = buildPayload()
+  if (!payload) {
+    notice.value = '当前没有可修改的字段'
+    return
+  }
+  saving.value = true
   try {
-    await saveSection(props.code, DEMO_STUDENT_ID, buildPayload())
+    await saveSection(props.code, DEMO_STUDENT_ID, payload)
     notice.value = '草稿已保存'
     await load()
   } catch (e) {
@@ -138,8 +245,23 @@ watch(() => props.code, load, { immediate: true })
         <h1 class="board__title">{{ meta.name }}</h1>
         <p class="board__summary">{{ meta.summary }}</p>
       </div>
-      <span v-if="section" class="tag" :class="`tag--${section.status}`">{{ statusLabel }}</span>
+      <div class="board__state">
+        <span class="board__completeness">完整度 {{ completenessText }}</span>
+        <span v-if="section" class="tag" :class="`tag--${section.status}`">{{ statusLabel }}</span>
+      </div>
     </header>
+
+    <!-- 退回理由（BR-S04）：学生必须能看到被退回的原因，不能只给一个「已退回」标签 -->
+    <div v-if="returnNote" class="alert alert--return">
+      <div class="alert__head">
+        <strong>当前板块被退回</strong>
+        <span v-if="returnNote.at" class="alert__time">{{ returnNote.at }}</span>
+      </div>
+      <p class="alert__reason">{{ returnNote.reason }}</p>
+      <p v-if="section?.status === 'RETURNED'" class="alert__tip">
+        修改后重新提交即可再次进入审核。
+      </p>
+    </div>
 
     <p v-if="notice" class="alert alert--success">{{ notice }}</p>
 
@@ -159,16 +281,31 @@ watch(() => props.code, load, { immediate: true })
     <p v-if="loading" class="board__loading">加载中…</p>
 
     <form v-else class="board__form" @submit.prevent="onSave">
-      <div v-for="field in meta.fields" :key="field.key" class="field">
-        <label class="field__label" :for="`field-${field.key}`">{{ field.label }}</label>
+      <div v-for="field in formFields" :key="field.key" class="field">
+        <label class="field__label" :for="`field-${field.key}`">
+          {{ field.label }}<span v-if="field.required" class="field__required">*</span>
+        </label>
+        <select
+          v-if="field.type === 'select'"
+          :id="`field-${field.key}`"
+          v-model="form[field.key]"
+          class="field__control"
+          :class="{ 'has-error': fieldHints[field.key] }"
+          :disabled="!field.editable"
+        >
+          <option value="">请选择</option>
+          <option v-for="option in field.options" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
         <textarea
-          v-if="field.type === 'textarea'"
+          v-else-if="field.type === 'textarea'"
           :id="`field-${field.key}`"
           v-model="form[field.key]"
           class="field__control"
           :class="{ 'has-error': fieldHints[field.key] }"
           rows="3"
-          :disabled="!editable"
+          :disabled="!field.editable"
         />
         <input
           v-else
@@ -177,9 +314,14 @@ watch(() => props.code, load, { immediate: true })
           class="field__control"
           :class="{ 'has-error': fieldHints[field.key] }"
           :type="inputType(field.type)"
-          :disabled="!editable"
+          :maxlength="field.maxLength"
+          :disabled="!field.editable"
         />
         <p v-if="fieldHints[field.key]" class="field__error">{{ fieldHints[field.key] }}</p>
+        <p v-else-if="field.type === 'file'" class="field__hint">
+          附件上传暂未开放，请在学校系统中维护
+        </p>
+        <p v-else-if="field.lockHint" class="field__hint">{{ field.lockHint }}</p>
         <p v-else-if="field.type === 'tags'" class="field__hint">多个值用逗号分隔</p>
       </div>
 
@@ -231,6 +373,45 @@ watch(() => props.code, load, { immediate: true })
   margin: 0;
   color: var(--color-text-muted);
   font-size: 13px;
+}
+
+.board__state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.board__completeness {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.field__required {
+  margin-left: 2px;
+  color: var(--color-danger);
+}
+
+.alert--return {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.alert__reason {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.alert__time {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.alert__tip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .board__loading {

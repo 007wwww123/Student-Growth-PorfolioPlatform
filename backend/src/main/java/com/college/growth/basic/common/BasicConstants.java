@@ -1,5 +1,7 @@
 package com.college.growth.basic.common;
 
+import com.college.growth.common.field.validation.validator.DerivedFieldValidator;
+
 /**
  * 基本信息板块常量。
  *
@@ -21,6 +23,30 @@ public final class BasicConstants {
 
     /** 本板块涉及的物理表。 */
     public static final String TABLE_PROFILE = "arc_profile";
+
+    /** 单次保存的字段数上限（BR-F07）。 */
+    public static final int MAX_FIELDS_PER_SAVE = 60;
+
+    /** 系统推导字段的校验器标识：不落库、不接受提交、不计必填。取值与校验器保持一致，避免两处各写一份。 */
+    public static final String VALIDATOR_DERIVED = DerivedFieldValidator.CODE;
+
+    /** 待确认状态：无待确认值。 */
+    public static final String CONFIRM_NONE = "NONE";
+
+    /** 待确认状态：等待辅导员确认。 */
+    public static final String CONFIRM_PENDING = "PENDING";
+
+    /** 待确认状态：辅导员已确认。 */
+    public static final String CONFIRM_APPROVED = "APPROVED";
+
+    /** 待确认状态：辅导员已驳回。 */
+    public static final String CONFIRM_REJECTED = "REJECTED";
+
+    /** 专业字段的短名，由班级推导。 */
+    public static final String SHORT_MAJOR = "majorId";
+
+    /** 班级字段的短名。 */
+    public static final String SHORT_CLASS = "classId";
 
     private BasicConstants() {
     }
