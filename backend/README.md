@@ -249,7 +249,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，四个文件按文件名前缀数字 **01 → 04** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，七个文件按文件名前缀数字 **01 → 07** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -260,17 +260,31 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/03_insert_basic_field_defs.sql
 # 04 系统审计日志表（状态流转、审核、查看明文、待确认处理都要写）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/04_create_audit_log.sql
+# 05 升级：arc_field_def 增加 source_field 并回填 7 个 SIS 字段映射
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/05_alter_field_def_source_field.sql
+# 06 学生主数据表 stu_student（SIS 落地副本）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/06_create_student_table.sql
+# 07 学生种子（4 人，覆盖三个班级，身份证号均通过校验位）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/07_insert_student_seed.sql
 
-# 自检：应为 total=16、required_cnt=8
+# 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
-  "select count(*) total, sum(required=1) required_cnt from arc_field_def where section_code='BASIC';"
+  "select count(*) total, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where section_code='BASIC';
+   select count(*) students from stu_student;"
 ```
+
+> **存量库升级**：老库没有 `arc_field_def.source_field` 列，先跑 `05`（先 ALTER 再回填，可重复执行），
+> 再跑 `06`/`07`。`03` 不涉及这一列，无需重跑；`01` 只对全新库生效（`CREATE TABLE IF NOT EXISTS`）。
+
+> 学生主数据的值与档案的关系：`stu_student` 是权威副本，`StudentSyncService` 在**建档、保存、提交**时
+> 把 SIS 字段物化进 `arc_profile_item`（只补空值，不覆盖已有值）。学工系统改正数据后用
+> `POST /api/sections/basic/{studentId}/sync-student` 强制覆盖，仅本班辅导员或持授权管理员可调用。
 
 > **必须带 `--default-character-set=utf8mb4`**：中文 Windows 的 mysql 客户端默认 `gbk`，而脚本是 UTF-8，
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01/02/03/04` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__`、`V3__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 07` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 

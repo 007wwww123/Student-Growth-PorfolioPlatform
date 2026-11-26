@@ -42,6 +42,7 @@ import com.college.growth.common.log.mapper.SysAuditLogMapper;
 import com.college.growth.common.log.service.AuditLogService;
 import com.college.growth.common.log.service.ChangeLogService;
 import com.college.growth.common.org.mapper.OrgClassMapper;
+import com.college.growth.common.org.service.StudentClassService;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
 import com.college.growth.common.profile.mapper.ArcProfileItemMapper;
@@ -52,6 +53,7 @@ import com.college.growth.common.profile.service.ProfileItemService;
 import com.college.growth.common.profile.service.ProfileLocator;
 import com.college.growth.common.profile.vo.PendingFieldVO;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.common.student.service.StudentSyncService;
 import com.college.growth.review.service.ProfileWorkflowService;
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -114,6 +116,12 @@ class BasicSectionServiceTest {
     @Mock
     private PendingFieldService pendingFieldService;
 
+    @Mock
+    private StudentSyncService studentSyncService;
+
+    @Mock
+    private StudentClassService studentClassService;
+
     private BasicSectionServiceImpl service;
 
     @BeforeEach
@@ -127,7 +135,8 @@ class BasicSectionServiceTest {
                 new ChangeLogService(changeLogMapper), new AuditLogService(auditLogMapper),
                 workflowService, pendingFieldService,
                 new ProfileCompletenessService(fieldDefService, new ProfileItemService(itemMapper),
-                        profileMapper));
+                        profileMapper),
+                studentSyncService, studentClassService);
         UserContext.set(new CurrentUser(STUDENT_ID, UserRoleEnum.STU, false));
     }
 

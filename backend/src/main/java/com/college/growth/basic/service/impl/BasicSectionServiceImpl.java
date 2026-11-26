@@ -23,6 +23,7 @@ import com.college.growth.common.log.service.AuditLogService;
 import com.college.growth.common.log.service.ChangeLogService;
 import com.college.growth.common.org.entity.OrgClass;
 import com.college.growth.common.org.mapper.OrgClassMapper;
+import com.college.growth.common.org.service.StudentClassService;
 import com.college.growth.common.profile.FieldValueCodec;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
@@ -34,6 +35,7 @@ import com.college.growth.common.profile.service.ProfileLocator;
 import com.college.growth.common.profile.vo.PendingFieldVO;
 import com.college.growth.common.result.FieldErrorDetail;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.common.student.service.StudentSyncService;
 import com.college.growth.common.util.AcademicYearUtils;
 import com.college.growth.common.util.TextUtils;
 import com.college.growth.review.service.ProfileWorkflowService;
@@ -94,6 +96,10 @@ public class BasicSectionServiceImpl implements BasicSectionService {
 
     private final ProfileCompletenessService completenessService;
 
+    private final StudentSyncService studentSyncService;
+
+    private final StudentClassService studentClassService;
+
     public BasicSectionServiceImpl(ArcProfileMapper profileMapper,
                                    ProfileLocator profileLocator,
                                    ProfileItemService itemService,
@@ -104,7 +110,9 @@ public class BasicSectionServiceImpl implements BasicSectionService {
                                    AuditLogService auditLogService,
                                    ProfileWorkflowService workflowService,
                                    PendingFieldService pendingFieldService,
-                                   ProfileCompletenessService completenessService) {
+                                   ProfileCompletenessService completenessService,
+                                   StudentSyncService studentSyncService,
+                                   StudentClassService studentClassService) {
         this.profileMapper = profileMapper;
         this.profileLocator = profileLocator;
         this.itemService = itemService;
@@ -116,6 +124,8 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         this.workflowService = workflowService;
         this.pendingFieldService = pendingFieldService;
         this.completenessService = completenessService;
+        this.studentSyncService = studentSyncService;
+        this.studentClassService = studentClassService;
     }
 
     @Override
@@ -210,6 +220,12 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         }
         assertWritable(profile);
 
+        Map<String, ArcProfileItem> items = itemService.loadByProfile(profile.getId());
+        // SIS 字段（姓名、学号、班级等）任何角色都写不进来，值只来自学生主数据。
+        // 建档与保存是学生能触发的第一个写节点，在这里补齐空值，
+        // 学生才可能仅凭填写自己的字段就通过提交校验。
+        studentSyncService.fillAbsent(profile, defs, items);
+
         // 先全量校验，再统一写入：避免「前几个字段已落库、后一个字段报错」留下半成品。
         // 权限问题单独收集：越权写与格式错误是两类问题，前者必须是 403（BR-F01）。
         List<FieldErrorDetail> permissionErrors = new ArrayList<>();
@@ -242,7 +258,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
             throw new BusinessException(ResultCode.FIELD_VALIDATION_FAILED, "字段校验未通过", errors);
         }
 
-        Map<String, ArcProfileItem> items = itemService.loadByProfile(profile.getId());
+        // items 上面已加载并含同步结果，这里直接复用，不重复查库。
         for (Map.Entry<String, ArcFieldDef> entry : accepted.entrySet()) {
             applyFieldSave(profile, entry.getValue(), submitted.get(entry.getKey()), items, user);
         }
@@ -262,6 +278,9 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         assertWritable(profile);
 
         Map<String, ArcProfileItem> items = itemService.loadByProfile(profile.getId());
+        // 提交前再补一次空值：从建档到提交之间主数据可能刚同步进来（学籍补录、转专业），
+        // 不补就会出现「学校明明有数据、学生却被判必填缺失」。
+        studentSyncService.fillAbsent(profile, defs, items);
         List<FieldErrorDetail> missing = new ArrayList<>();
         List<FieldErrorDetail> invalid = new ArrayList<>();
         for (ArcFieldDef def : defs) {
@@ -341,6 +360,30 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         auditLogService.record(AuditLogService.BIZ_SENSITIVE_VIEW, AuditLogService.TARGET_PROFILE,
                 profile.getId(), studentId, profile.getSectionCode(), fieldCode, "REVEAL", note);
         return new SensitiveFieldVO(def.getFieldCode(), def.getFieldName(), FieldValues.asText(value));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int syncStudent(Long studentId, String academicYear) {
+        CurrentUser user = UserContext.get();
+        String year = AcademicYearUtils.resolve(academicYear);
+        // 与待确认区同一套数据范围：本班现任辅导员，或持临时授权的管理员。
+        if (!studentClassService.isCounselorOf(studentId, year, user.userId()) && !user.isAdminWithGrant()) {
+            throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "无权同步该学生的基础信息");
+        }
+        ArcProfile profile = profileLocator.require(studentId, BasicConstants.SECTION_CODE, year,
+                BasicConstants.SECTION_NAME);
+        // 已通过/锁定的档案不能被一次同步悄悄改掉内容，否则审核结论就失去了依据。
+        assertWritable(profile);
+
+        List<ArcFieldDef> defs = fieldDefService.listActive(BasicConstants.SECTION_CODE);
+        Map<String, ArcProfileItem> items = itemService.loadByProfile(profile.getId());
+        int written = studentSyncService.overwrite(profile, defs, items);
+        completenessService.refresh(profile, items);
+        auditLogService.record(AuditLogService.BIZ_IMPORT, AuditLogService.TARGET_PROFILE,
+                profile.getId(), studentId, profile.getSectionCode(), null,
+                AuditLogService.ACTION_SYNC, "学工系统数据重新同步，更新 " + written + " 个字段");
+        return written;
     }
 
     // ------------------------------------------------------------------

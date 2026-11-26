@@ -75,4 +75,17 @@ public interface BasicSectionService {
      * @return 明文值
      */
     SensitiveFieldVO reveal(Long studentId, String fieldCode, String academicYear);
+
+    /**
+     * 从学生主数据重新同步 SIS 字段（姓名、学号、性别、民族、身份证、籍贯、班级）。
+     *
+     * <p>与保存/提交时的自动补齐不同，本方法会**覆盖**档案中已有的值，
+     * 用于学工系统改正数据后把新值推到档案。仅本班现任辅导员或持临时授权的管理员可调用，
+     * 且只允许在可写状态（DRAFT / RETURNED）下执行。</p>
+     *
+     * @param studentId    学生 ID
+     * @param academicYear 学年
+     * @return 实际更新的字段数
+     */
+    int syncStudent(Long studentId, String academicYear);
 }

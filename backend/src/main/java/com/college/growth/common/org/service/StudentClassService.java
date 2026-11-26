@@ -9,15 +9,22 @@ import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
 import com.college.growth.common.profile.mapper.ArcProfileItemMapper;
 import com.college.growth.common.profile.mapper.ArcProfileMapper;
+import com.college.growth.common.student.service.StudentMasterService;
 import com.college.growth.common.util.TextUtils;
 import org.springframework.stereotype.Service;
 
 /**
  * 学生班级与审核权解析。
  *
- * <p>审核模块要判断「当前辅导员是否本班」，但 {@code arc_profile} 上没有班级列：
- * 班级目前存在基本信息板块的 {@code basic.classId} 字段里。本类把这层间接关系收在一处，
- * 接入教务学生主数据后只改这里，审核模块与六个板块都不用动。</p>
+ * <p>班级有两条来源，按优先级取：</p>
+ * <ol>
+ *   <li><b>学生主数据</b> {@code stu_student.class_code}（首选）：学籍上的班级，权威且不依赖学生填表；</li>
+ *   <li><b>基本信息板块</b> {@code basic.classId} 字段值（回退）：主数据接入前建档的历史档案只有这一份，
+ *       切源时不能把他们的审核权切断。</li>
+ * </ol>
+ *
+ * <p>回退分支只服务于存量数据，新档案一律以主数据为准。等历史档案补齐后可删除回退，
+ * 届时审核模块与六个板块仍不用动——这就是把间接关系收在一处的意义。</p>
  */
 @Service
 public class StudentClassService {
@@ -28,12 +35,16 @@ public class StudentClassService {
 
     private final OrgClassMapper orgClassMapper;
 
+    private final StudentMasterService studentMasterService;
+
     public StudentClassService(ArcProfileMapper profileMapper,
                                ArcProfileItemMapper itemMapper,
-                               OrgClassMapper orgClassMapper) {
+                               OrgClassMapper orgClassMapper,
+                               StudentMasterService studentMasterService) {
         this.profileMapper = profileMapper;
         this.itemMapper = itemMapper;
         this.orgClassMapper = orgClassMapper;
+        this.studentMasterService = studentMasterService;
     }
 
     /**
@@ -54,8 +65,17 @@ public class StudentClassService {
                 .last("limit 1"));
     }
 
-    /** 取学生某学年所属班级的编码，供待审列表按班筛选。 */
+    /**
+     * 取学生某学年所属班级的编码，供待审列表按班筛选。
+     *
+     * <p>先取学生主数据，命中即返回；主数据缺失或未分班时才回退到 {@code basic.classId} 字段值，
+     * 保证主数据接入前后的档案都能正确判定审核权。</p>
+     */
     public String findClassValue(Long studentId, String academicYear) {
+        String fromMaster = studentMasterService.findClassCode(studentId);
+        if (!TextUtils.isBlank(fromMaster)) {
+            return fromMaster;
+        }
         ArcProfile basic = profileMapper.selectOne(Wrappers.<ArcProfile>lambdaQuery()
                 .eq(ArcProfile::getStudentId, studentId)
                 .eq(ArcProfile::getSectionCode, SectionCodeEnum.BASIC.name())

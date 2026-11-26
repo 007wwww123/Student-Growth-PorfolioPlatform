@@ -37,6 +37,14 @@ public class ArcFieldDef {
     /** 来源：SIS/COU/STU/STU_CFM/SYS/IMP。 */
     private String source;
 
+    /**
+     * SIS 同步来源列名：{@code stu_student} 的列，如 {@code name}、{@code class_code}。
+     *
+     * <p>只有 {@code source=SIS} 的字段需要填；为空表示不从学生主数据同步。
+     * 有了这一列，「哪些字段由主数据维护」也是定义驱动，新增字段不用改同步代码。</p>
+     */
+    private String sourceField;
+
     /** 可见角色，逗号分隔（不含管理员）。 */
     private String visibleRoles;
 

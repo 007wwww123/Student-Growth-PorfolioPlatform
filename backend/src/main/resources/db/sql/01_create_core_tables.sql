@@ -7,7 +7,9 @@
 -- 约定：
 --   1. 六板块共用 arc_profile / arc_profile_item / arc_change_log，用 section_code 区分；
 --   2. 字段值一律按 field_code 逐行存储，不随板块新增列（EAV 变体）；
---   3. 脚本幂等，可重复执行；执行顺序按文件名前缀数字 01 → 02 → 03。
+--   3. 脚本幂等，可重复执行；执行顺序按文件名前缀数字 01 → 07：
+--      01 建表 → 02 班级 → 03 字段定义 → 04 审计表 → 05 升级补列 → 06 学生主数据表 → 07 学生种子。
+--      存量库升级时先跑 05，再重跑 03（把 source_field 补上）。
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS arc_field_def
     field_type    VARCHAR(16)  NOT NULL COMMENT 'TEXT/TEXTAREA/NUMBER/DATE/SELECT/MULTI_SELECT/RADIO/CHECKBOX/FILE',
     required      TINYINT      NOT NULL DEFAULT 0 COMMENT '提交时是否必填（1 是）',
     source        VARCHAR(16)  NOT NULL COMMENT '值来源：SIS/COU/STU/STU_CFM/SYS/IMP',
+    source_field  VARCHAR(64)  NULL COMMENT 'SIS 同步来源：stu_student 的列名，为空表示不同步',
     visible_roles VARCHAR(64)  NOT NULL COMMENT '可见角色，逗号分隔，如 STU,COU；不含管理员（管理员默认无业务数据权限）',
     editable_roles VARCHAR(64) NOT NULL DEFAULT '' COMMENT '可编辑角色，逗号分隔；空表示任何角色均不可直接填写',
     validator     VARCHAR(32)  NOT NULL COMMENT '校验器标识，由代码注册表按标识执行（BR-F02）',
