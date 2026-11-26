@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: 学生成长档案平台 API
-  version: 0.1.0
+  version: 0.2.0
   license:
     name: 内部项目，未授予开源许可
   description: |
@@ -26,7 +26,7 @@ info:
 
     - `code` 为 `"0"` 表示成功，其余为 `EC-xxxxx` 业务码；
     - `data` 仅在成功且存在业务数据时出现（后端按 `non_null` 序列化）；
-    - `details` 仅在字段校验失败（`EC-42201`）时出现，供前端逐字段提示；
+    - `details` 可在字段格式或必填校验失败时出现，供前端逐字段提示；
     - `traceId` 用于串联服务端日志，用户报障时请一并提供。
 
     ## 二、板块数据结构：信封 + fields
@@ -40,7 +40,9 @@ info:
       "sectionCode": "BASIC",
       "sectionName": "基本信息",
       "status": "DRAFT",
-      "fields": { "name": "林清和", "studentNo": "2023010101" },
+      "version": 1,
+      "fieldDefinitions": [{"key":"email","label":"邮箱","type":"text","required":false,"editable":true}],
+      "fields": { "email": "student@example.edu.cn" },
       "editable": true
     }
     ```
@@ -81,20 +83,18 @@ info:
     | `EC-42201` | 422 | 字段校验未通过 | 按 `details` 逐字段提示 |
     | `EC-42202` | 422 | 必填内容未填写 | 按 `details` 定位字段 |
     | `EC-42203` | 422 | 退回理由不少于 10 字 | 提示补足字数 |
-    | `EC-50000` | 501 | 该功能尚未实现 | 骨架期占位，提示稍后再试 |
     | `EC-50001` | 500 | 系统繁忙 | 提示稍后重试，附 traceId |
     | `EC-50002` | 500 | 文件服务不可用 | 提示稍后重试 |
     | `EC-50003` | 500 | 档案生成失败 | 联系管理员 |
 
-    ## 六、当前实现状态
+    ## 六、身份与并发控制
 
-    六个板块的路由、DTO、VO 已就位，Service 层为占位实现，返回 `EC-50000`（HTTP 501）。
-    本契约即前后端并行开发的依据：前端按本文件用 MSW 造 mock，后端按本文件补实现。
+    业务请求携带预签发的 Bearer 令牌。保存、提交及单板块审核动作携带详情或待办中的
+    version，使用裸十进制整数作为 If-Match。整体归档在正文中提交六个板块各自的版本。
+    当版本或状态冲突时，刷新详情以核对当前内容。
 
-    ## 七、鉴权（预留）
-
-    鉴权尚未接入。接入后统一使用 `Authorization: Bearer <token>`，
-    过期返回 `EC-40102`，前端拦截后跳转登录。该 Header 现在即可在请求封装中预留。
+security:
+  - bearerAuth: []
 
 servers:
   - url: http://localhost:8080/api
@@ -121,7 +121,6 @@ paths:
     get:
       tags: [平台公共]
       operationId: getSectionDetail
-      security: []
       summary: 查询板块详情
       description: |
         返回该学生指定学年该板块的详情，`fields` 为该板块已保存的字段值，
@@ -149,65 +148,51 @@ paths:
                     traceId: a1b2c3d4e5f60708
                     timestamp: '2026-11-26T15:23:50+08:00'
                     data:
+                      version: 1
+                      fieldDefinitions:
+                        - {key: email, label: 邮箱, type: text, required: false, editable: true}
                       studentId: 1001
                       academicYear: 2025-2026-1
                       sectionCode: BASIC
                       sectionName: 基本信息
                       status: DRAFT
                       fields:
-                        name: 林清和
-                        studentNo: '2023010101'
-                        gender: 女
-                        idCard: 3301**********0028
-                        phone: '13800001234'
                         email: linqinghe@example.edu.cn
                       editable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
 
     put:
       tags: [平台公共]
       operationId: saveSectionDraft
-      security: []
       summary: 保存板块草稿
       description: |
-        逐字段校验后写入，把板块保存为 `DRAFT`。
+        保存前检查权限、字段定义和当前版本。
         仅 `DRAFT` / `RETURNED` 状态允许写入，其余状态返回 `EC-40902`。
 
-        请求体为对应板块的 SaveDTO（`oneOf` 六个定义），字段名必须与
-        `backend/src/main/java/com/college/growth/{板块}/dto` 中的属性名一致。
+        请求体包含 academicYear 及本次修改的可写字段，字段以详情的 fieldDefinitions 为准。
         未传的字段按「不修改」处理，传 `null` 表示清空。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              oneOf:
-                - $ref: '#/components/schemas/BasicSectionSaveDTO'
-                - $ref: '#/components/schemas/AcademicSectionSaveDTO'
-                - $ref: '#/components/schemas/InterestSectionSaveDTO'
-                - $ref: '#/components/schemas/LifeSectionSaveDTO'
-                - $ref: '#/components/schemas/CareerSectionSaveDTO'
-                - $ref: '#/components/schemas/MentorSectionSaveDTO'
+              $ref: '#/components/schemas/DraftUpdate'
             examples:
               basic:
                 summary: 基本信息（code=basic）
                 value:
                   academicYear: 2025-2026-1
-                  name: 林清和
-                  studentNo: '2023010101'
-                  gender: 女
-                  idCard: 3301**********0028
-                  phone: '13800001234'
                   email: linqinghe@example.edu.cn
               academic:
                 summary: 学业发展（code=academic）
@@ -217,7 +202,6 @@ paths:
                   goalLong: 争取保研，进入数据分析方向
                   strongSubjects: [数据结构, 概率论]
                   weakSubjects: [大学物理]
-                  abilityNote: 编程实现能力较强，理论推导需要加强。
       responses:
         '200':
           description: 保存成功，无业务数据
@@ -230,6 +214,8 @@ paths:
                 message: 操作成功
                 traceId: a1b2c3d4e5f60708
                 timestamp: '2026-11-26T15:23:50+08:00'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -240,14 +226,11 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '500':
           $ref: '#/components/responses/InternalError'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
 
   /sections/{code}/{studentId}/submit:
     post:
       tags: [平台公共]
       operationId: submitSection
-      security: []
       summary: 提交板块
       description: |
         校验必填字段是否齐全，通过后把板块由 `DRAFT` / `RETURNED` 转为 `SUBMITTED`。
@@ -255,13 +238,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
-        - name: academicYear
-          in: query
-          required: true
-          description: 学年，格式 `2025-2026-1`
-          schema:
-            type: string
-            example: 2025-2026-1
+        - $ref: '#/components/parameters/RequiredYear'
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: 提交成功，无业务数据
@@ -269,6 +247,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -279,17 +259,234 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '500':
           $ref: '#/components/responses/InternalError'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
+
+  /auth/me:
+    get:
+      operationId: getIdentity
+      summary: 获取当前身份及授权名单
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ArchiveIdentity'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: 撤销当前会话
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /workflow/{studentId}:
+    get:
+      operationId: listWorkflow
+      summary: 查询指定学生和学年的已建档板块
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/RequiredYear'
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/WorkflowEntry'}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /workflow/{studentId}/{code}/approve:
+    post:
+      operationId: approveSection
+      summary: 审核通过
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/RequiredYear'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /workflow/{studentId}/{code}/return:
+    post:
+      operationId: returnSection
+      summary: 退回修改
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/RequiredYear'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 10, maxLength: 500}
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /workflow/{studentId}/{code}/withdraw:
+    post:
+      operationId: withdrawSection
+      summary: 撤回提交
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/SectionCode'
+        - $ref: '#/components/parameters/RequiredYear'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+
+  /workflow/{studentId}/archive:
+    post:
+      operationId: archiveProfile
+      summary: 按六个已通过板块的版本归档
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/RequiredYear'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [basic, academic, interest, life, career, mentor]
+              additionalProperties: {type: integer, format: int64, minimum: 0}
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      description: 预留，当前尚未启用鉴权
+      description: 预签发会话，过期或注销后需重新获取有效令牌
 
   parameters:
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 非负整数版本，按十进制发送，无引号
+      schema: {type: integer, format: int64, minimum: 0}
+    RequiredYear:
+      name: academicYear
+      in: query
+      required: true
+      schema: {type: string, example: 2025-2026-1}
     SectionCode:
       name: code
       in: path
@@ -312,12 +509,18 @@ components:
       name: academicYear
       in: query
       required: false
-      description: 学年，格式 `2025-2026-1`；不传时取当前学年
+      description: 学年，格式 `2025-2026-1`；不传时取身份授权范围内排序最新的学年
       schema:
         type: string
         example: 2025-2026-1
 
   responses:
+    Unauthorized:
+      description: 无有效会话或令牌已过期（EC-40101、EC-40102）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VoidResponse'
     BadRequest:
       description: 参数错误，`code` 为 `EC-40001` / `EC-40002` / `EC-40003`
       content:
@@ -342,7 +545,7 @@ components:
             traceId: a1b2c3d4e5f60708
             timestamp: '2026-11-26T15:23:50+08:00'
     ValidationFailed:
-      description: 字段校验失败，`code` 为 `EC-42201`
+      description: 字段校验、必填或退回理由不符合要求（EC-42201、EC-42202、EC-42203）
       content:
         application/json:
           schema:
@@ -359,17 +562,6 @@ components:
               - field: email
                 reason: Email
                 message: 邮箱格式不正确
-    NotImplemented:
-      description: 骨架期占位，`code` 为 `EC-50000`
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/VoidResponse'
-          example:
-            code: EC-50000
-            message: 基本信息板块查询尚未实现
-            traceId: a1b2c3d4e5f60708
-            timestamp: '2026-11-26T15:23:50+08:00'
     InternalError:
       description: 系统异常，`code` 为 `EC-50001`
       content:
@@ -402,10 +594,10 @@ components:
         data:
           description: |
             业务数据，仅成功且存在数据时出现。类型随接口而定：
-            板块详情为 `SectionVO`，列表为 `PageResult`，保存与提交接口不返回该字段。
+            板块详情为 SectionVO，工作流查询为条目数组，保存与提交成功时省略。
         details:
           type: array
-          description: 字段级错误明细，仅 `EC-42201` 时出现
+          description: 字段级错误明细，可在字段格式或必填校验失败时出现
           items:
             $ref: '#/components/schemas/FieldErrorDetail'
 
@@ -453,7 +645,7 @@ components:
       description: |
         板块详情。外层是公共信封，板块自身字段统一放在 `fields` 内，
         由后端按 `arc_field_def` 动态下发。
-      required: [studentId, academicYear, sectionCode, sectionName, status, fields, editable]
+      required: [studentId, academicYear, sectionCode, sectionName, status, fields, editable, version, fieldDefinitions]
       properties:
         studentId:
           type: integer
@@ -475,6 +667,24 @@ components:
           type: object
           additionalProperties: true
           description: 板块字段值，键名与对应 SaveDTO 属性名一致
+        version:
+          type: integer
+          format: int64
+        returnReason:
+          type: string
+          nullable: true
+        fieldDefinitions:
+          type: array
+          items:
+            type: object
+            required: [key, label, type, required, editable]
+            properties:
+              key: {type: string}
+              label: {type: string}
+              type: {type: string}
+              required: {type: boolean}
+              editable: {type: boolean}
+              options: {type: array, items: {type: string}}
         editable:
           type: boolean
           description: 当前用户是否可编辑该板块
@@ -486,6 +696,27 @@ components:
         `APPROVED` 已通过、`LOCKED` 已归档。仅 `DRAFT` / `RETURNED` 允许保存与提交。
       enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
 
+    DraftUpdate:
+      type: object
+      required: [academicYear]
+      additionalProperties: true
+      properties:
+        academicYear: {type: string, minLength: 1, maxLength: 16}
+    ArchiveIdentity:
+      type: object
+      required: [actorId, role, studentIds, academicYears]
+      properties:
+        actorId: {type: integer, format: int64}
+        role: {type: string, enum: [STUDENT, MENTOR, COUNSELOR, ADMIN]}
+        studentIds: {type: array, items: {type: integer, format: int64}}
+        academicYears: {type: array, items: {type: string}}
+    WorkflowEntry:
+      type: object
+      required: [code, status, version]
+      properties:
+        code: {type: string, enum: [basic, academic, interest, life, career, mentor]}
+        status: {$ref: '#/components/schemas/ProfileStatus'}
+        version: {type: integer, format: int64}
     PageResult:
       type: object
       description: 分页载体，列表类接口统一使用（班级台账、审计日志等，本期尚未开放）
@@ -510,7 +741,7 @@ components:
     BasicSectionSaveDTO:
       type: object
       description: 基本信息保存请求，对应 `BasicSectionSaveDTO`
-      required: [academicYear, name, studentNo]
+      required: [academicYear]
       properties:
         academicYear:
           type: string
