@@ -46,9 +46,10 @@ public interface ProfileWorkflowService {
     void reject(ArcProfile profile, String reason);
 
     /**
-     * 重算「六板块是否全部通过」标记（BR-S10）。
+     * 重算「六板块是否全部完成」标记（BR-S10）。
      *
-     * <p>审核与撤回后调用；只更新派生标记，不参与乐观锁。</p>
+     * <p>提交、撤回、审核通过、退回后调用；只更新派生标记，不参与乐观锁。
+     * 判定口径与写库动作委托给 {@code CompletionService}，状态机只决定「什么时候重算」。</p>
      *
      * @param studentId    学生 ID
      * @param academicYear 学年

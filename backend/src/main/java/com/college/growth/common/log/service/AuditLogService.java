@@ -33,6 +33,9 @@ public class AuditLogService {
     /** 业务类型：外部系统数据同步。 */
     public static final String BIZ_IMPORT = "IMPORT";
 
+    /** 业务类型：完成标记重算（BR-S10 派生数据维护）。 */
+    public static final String BIZ_COMPLETION = "COMPLETION";
+
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
 

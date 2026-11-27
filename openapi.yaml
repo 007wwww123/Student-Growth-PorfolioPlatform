@@ -796,6 +796,82 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /completion/students/{studentId}:
+    get:
+      tags: [完成标记]
+      operationId: getCompletionStatus
+      summary: 读取学生六板块完成标记
+      description: |
+        完成标记（BR-S10）是「学生 × 学年」级别的派生结论：六个板块全部处于 `APPROVED`
+        或 `LOCKED` 时为 `true`，由服务端写入 `arc_profile.completed`，客户端不得自行统计。
+
+        已归档（`LOCKED`）也算完成——归档是完成之后的终态，不能因为归档把标记算回未完成。
+
+        数据范围：学生只能读本人，辅导员只能读本班学生，管理员需持临时授权；越权返回 `EC-40302`。
+        逐板块列表固定六项，未建档板块的 `status` 为空、`statusLabel` 为「未建档」。
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CompletionStatusVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /completion/refresh:
+    post:
+      tags: [完成标记]
+      operationId: refreshCompletion
+      summary: 手动重算完成标记
+      description: |
+        运维补偿接口：正常路径上，提交 / 撤回 / 审核通过 / 退回都会在事务内重算标记，
+        只有绕过状态机的旁路数据（直接改库、批量修数脚本、迁移导入）才需要手工触发。
+
+        不传 `studentId` 表示整学年重算，仅持临时授权的管理员可执行；辅导员只能重算本班单个学生；
+        学生一律 `EC-40302`。重算是幂等的：标记未翻转时不写库，`changedStudents` 为 0。
+        每次调用写一条 `COMPLETION` 类型审计日志。
+      parameters:
+        - name: studentId
+          in: query
+          required: false
+          description: 学生 ID；不传表示整学年重算（仅管理员）
+          schema:
+            type: integer
+            format: int64
+            example: 1001
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 重算完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CompletionRefreshVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1495,3 +1571,108 @@ components:
           type: string
           enum: [APPROVED, REJECTED]
           example: APPROVED
+
+    CompletionSectionVO:
+      type: object
+      description: 单板块完成情况，未建档板块的 status 为空
+      required: [sectionCode, completed]
+      properties:
+        sectionCode:
+          type: string
+          description: 板块编码，小写
+          enum: [basic, academic, interest, life, career, mentor]
+          example: basic
+        sectionName:
+          type: string
+          example: 基本信息
+        status:
+          description: 板块状态，未建档时为空
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ProfileStatus'
+        statusLabel:
+          type: string
+          description: 状态中文名，未建档固定为「未建档」
+          example: 已通过
+        completed:
+          type: boolean
+          description: 本学期是否算完成（APPROVED / LOCKED）
+          example: true
+
+    CompletionStatusVO:
+      type: object
+      description: 六板块完成标记，对应后端 CompletionStatusVO
+      required: [studentId, academicYear, completed, createdSectionCount, completedSectionCount, pendingSections, sections]
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentNo:
+          type: string
+          example: '2024010101'
+        studentName:
+          type: string
+          example: 李明
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件工程2401班
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        completed:
+          type: boolean
+          description: 六板块是否全部完成，取自 arc_profile.completed
+          example: false
+        createdSectionCount:
+          type: integer
+          description: 已建档板块数，0–6
+          example: 6
+        completedSectionCount:
+          type: integer
+          description: 已完成板块数，0–6
+          example: 5
+        pendingSections:
+          type: array
+          description: 未完成板块中文名，按板块顺序；全部完成时为空数组
+          items:
+            type: string
+          example: [导师寄语]
+        sections:
+          type: array
+          description: 逐板块状态，固定六项
+          items:
+            $ref: '#/components/schemas/CompletionSectionVO'
+
+    CompletionRefreshVO:
+      type: object
+      description: 完成标记重算结果，对应后端 CompletionRefreshVO
+      required: [academicYear, checkedStudents, completedStudents, changedStudents]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        trigger:
+          type: string
+          description: MANUAL 手动 / SCHEDULED 定时 / STATUS_CHANGE 状态流转触发
+          enum: [MANUAL, SCHEDULED, STATUS_CHANGE]
+          example: MANUAL
+        checkedStudents:
+          type: integer
+          description: 参与判定的学生数
+          example: 4
+        completedStudents:
+          type: integer
+          description: 重算后判定为完成的学生数
+          example: 1
+        changedStudents:
+          type: integer
+          description: 标记发生翻转的学生数，重复重算应为 0
+          example: 1
+        refreshedAt:
+          type: string
+          format: date-time
+          example: '2026-11-27T03:30:00'

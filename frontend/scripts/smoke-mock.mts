@@ -261,6 +261,80 @@ check(
   `approve=${approved.status} now=${afterApprove.body.data.status} again=${again.status}`,
 )
 
+// 17. 完成标记（BR-S10）：六项固定、缺块「未建档」、权限与手动重算
+const completion = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const completionData = completion.body.data ?? {}
+const sections: Array<Record<string, any>> = completionData.sections ?? []
+check(
+  '完成标记：六板块固定下发且口径自洽',
+  completion.status === 200 &&
+    sections.length === 6 &&
+    sections[0].sectionCode === 'basic' &&
+    sections.every((item) => typeof item.statusLabel === 'string' && item.statusLabel.length > 0) &&
+    completionData.completed === (completionData.completedSectionCount === 6) &&
+    completionData.pendingSections.length === 6 - completionData.completedSectionCount,
+  `status=${completion.status} sections=${sections.length} completed=${completionData.completedSectionCount} pending=${completionData.pendingSections?.length}`,
+)
+
+// 1004 只建了基本信息，其余五块应显示「未建档」
+const partial = await call(`/completion/students/1004?academicYear=${YEAR}`, { headers: COU_9002 })
+const partialSections: Array<Record<string, any>> = partial.body.data?.sections ?? []
+const missing = partialSections.filter((item) => item.statusLabel === '未建档')
+check(
+  '完成标记：缺块显示未建档',
+  partial.status === 200 &&
+    missing.length === 5 &&
+    missing.every((item) => item.status === undefined && item.completed === false),
+  `status=${partial.status} missing=${missing.length} created=${partial.body.data?.createdSectionCount}`,
+)
+
+const completionOther = await call(`/completion/students/1004?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '完成标记：学生看他人 403',
+  completionOther.status === 403 && completionOther.body.code === 'EC-40302',
+  `status=${completionOther.status} code=${completionOther.body.code}`,
+)
+
+const completionCou = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: COU_9001 })
+const completionCrossClass = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: COU_9002 })
+const completionNoGrant = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: ADMIN })
+const completionGrant = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check(
+  '完成标记：本班辅导员可读、跨班与管理员无授权 403',
+  completionCou.status === 200 &&
+    completionCrossClass.status === 403 &&
+    completionNoGrant.status === 403 &&
+    completionGrant.status === 200,
+  `cou=${completionCou.status} cross=${completionCrossClass.status} admin=${completionNoGrant.status} grant=${completionGrant.status}`,
+)
+
+const refreshByStudent = await call(`/completion/refresh?studentId=1001&academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const refreshByCou = await call(`/completion/refresh?studentId=1001&academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: COU_9001,
+})
+const refreshYearByCou = await call(`/completion/refresh?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: COU_9001,
+})
+const refreshYearByAdmin = await call(`/completion/refresh?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: ADMIN_GRANT,
+})
+check(
+  '完成标记：手动重算权限',
+  refreshByStudent.status === 403 &&
+    refreshByCou.status === 200 &&
+    refreshByCou.body.data.checkedStudents === 1 &&
+    refreshYearByCou.status === 403 &&
+    refreshYearByAdmin.status === 200 &&
+    refreshYearByAdmin.body.data.checkedStudents === 4,
+  `stu=${refreshByStudent.status} cou=${refreshByCou.status}/${refreshByCou.body.data?.checkedStudents} couYear=${refreshYearByCou.status} adminYear=${refreshYearByAdmin.status}/${refreshYearByAdmin.body.data?.checkedStudents}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)
