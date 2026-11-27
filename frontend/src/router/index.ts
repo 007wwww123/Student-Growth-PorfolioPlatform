@@ -146,6 +146,23 @@ router.beforeEach((to) => {
   if (to.name === 'home' && getUser()?.role === 'STU') {
     return { name: 'section-basic' }
   }
+
+  /**
+   * 无临时授权的管理员（{@code tempGrant=false}）默认没有业务数据权限：
+   * 看板与待审列表返回 EC-40302，板块详情只回空视图（需求 2.1）。
+   *
+   * <p>菜单里这些项已按授权隐藏，这里必须同步兜住「手输 URL / 收藏夹」的路径，
+   * 否则隐藏菜单只是掩耳盗铃。唯一可用的页面是字段权限配置，直接送过去。</p>
+   */
+  const current = getUser()
+  if (current?.role === 'ADMIN' && current.tempGrant !== true) {
+    const name = String(to.name ?? '')
+    const needsBusinessData =
+      name === 'home' || name.startsWith('section-') || name.startsWith('review')
+    if (needsBusinessData) {
+      return { name: 'admin-permissions' }
+    }
+  }
   return true
 })
 

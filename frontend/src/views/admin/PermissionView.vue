@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError, type ApiError } from '@/api/http'
 import {
   fetchPermissionMatrix,
@@ -17,9 +18,17 @@ import type { FieldPermission, PermissionMatrix, PermissionMode, SectionPermissi
  *
  * <p>管理员在这里只配置权限，不读写任何学生档案内容；系统推导/系统生成的字段
  * （如专业、关注标记）固定只读，界面直接禁用并说明原因。</p>
+ *
+ * <p><b>为什么还留一个「全部板块」只读视图</b>：权限本身是全局的（一行
+ * `editable_roles` 管六个板块），但保存事务是<b>板块级</b>的。所以配置仍按板块保存，
+ * 另给一屏总览用于核对「51 个字段现在谁能改」——这是把配置拆到六个独立页面后
+ * 拿不回来的能力。总览只读，不放保存按钮，避免跨板块多次提交产生半成功状态。</p>
  */
 
 type EditableRole = 'STU' | 'COU'
+
+/** 页面视图：按板块配置 / 全部板块总览（只读）。 */
+type ViewMode = 'section' | 'all'
 
 const MODE_ROLES: Record<PermissionMode, EditableRole[]> = {
   NONE: [],
@@ -44,6 +53,10 @@ const MODE_OPTIONS: Array<{ mode: PermissionMode; label: string; hint: string }>
 
 const matrix = ref<PermissionMatrix | null>(null)
 const activeCode = ref('BASIC')
+/** 当前视图：默认按板块；带 `?section=all` 时进全部板块总览 */
+const viewMode = ref<ViewMode>('section')
+const route = useRoute()
+const router = useRouter()
 const drafts = reactive<Record<string, Record<string, EditableRole[]>>>({})
 const loading = ref(false)
 const saving = ref(false)
@@ -71,6 +84,29 @@ function resetDrafts(data: PermissionMatrix): void {
   }
 }
 
+/**
+ * 按 URL 的 `?section=` 定位视图。
+ *
+ * <p>板块页的「本板块字段权限」链接会带上 `?section=basic`，管理员从内容页跳过来
+ * 直接落在对应板块，不用再点一次页签；`?section=all` 进全部板块总览。</p>
+ */
+function syncFromQuery(data: PermissionMatrix): void {
+  const raw = route.query.section
+  const value = Array.isArray(raw) ? raw[0] : raw
+  if (typeof value !== 'string' || value.trim() === '') {
+    return
+  }
+  const code = value.trim().toUpperCase()
+  if (code === 'ALL') {
+    viewMode.value = 'all'
+    return
+  }
+  if (data.sections.some((section) => section.sectionCode === code)) {
+    activeCode.value = code
+    viewMode.value = 'section'
+  }
+}
+
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
@@ -81,6 +117,7 @@ async function load(): Promise<void> {
     if (!data.sections.some((section) => section.sectionCode === activeCode.value)) {
       activeCode.value = data.sections[0]?.sectionCode ?? 'BASIC'
     }
+    syncFromQuery(data)
   } catch (e) {
     matrix.value = null
     error.value = isApiError(e) ? e : null
@@ -268,10 +305,57 @@ function discard(): void {
 
 function switchSection(sectionCode: string): void {
   activeCode.value = sectionCode
+  viewMode.value = 'section'
   notice.value = ''
   error.value = null
   confirmingReset.value = false
+  void router.replace({ query: { ...route.query, section: sectionCode.toLowerCase() } })
 }
+
+/** 全部板块总览：一屏看全 51 个字段的权限，只读，不动草稿。 */
+function showAll(): void {
+  viewMode.value = 'all'
+  notice.value = ''
+  error.value = null
+  confirmingReset.value = false
+  void router.replace({ query: { ...route.query, section: 'all' } })
+}
+
+/** 总览行：带上板块信息，便于跨板块核对。 */
+interface MatrixRow {
+  sectionCode: string
+  sectionName: string
+  field: FieldPermission
+  /** 该板块的首行：板块名用 rowspan 合并，避免 51 行里「基本信息」重复 16 次 */
+  first: boolean
+}
+
+const allRows = computed<MatrixRow[]>(() =>
+  sections.value.flatMap((section) =>
+    section.fields.map((field, index) => ({
+      sectionCode: section.sectionCode,
+      sectionName: section.sectionName,
+      field,
+      first: index === 0,
+    })),
+  ),
+)
+
+function sectionSizeOf(sectionCode: string): number {
+  return sections.value.find((section) => section.sectionCode === sectionCode)?.fields.length ?? 1
+}
+
+const allStats = computed(() => {
+  const rows = allRows.value
+  return {
+    total: rows.length,
+    student: rows.filter((row) => row.field.editableRoles.includes('STU')).length,
+    counselor: rows.filter((row) => row.field.editableRoles.includes('COU')).length,
+    readonly: rows.filter((row) => row.field.editableRoles.length === 0).length,
+    customized: rows.filter((row) => row.field.customized).length,
+    locked: rows.filter((row) => row.field.locked).length,
+  }
+})
 
 function sourceLabel(source?: string): string {
   const labels: Record<string, string> = {
@@ -286,6 +370,19 @@ function sourceLabel(source?: string): string {
 }
 
 load()
+
+/**
+ * 从板块页的深链再次跳进来时组件已挂载，query 变化不会重新加载，
+ * 需要单独同步一次视图。
+ */
+watch(
+  () => route.query.section,
+  () => {
+    if (matrix.value) {
+      syncFromQuery(matrix.value)
+    }
+  },
+)
 </script>
 
 <template>
@@ -324,7 +421,7 @@ load()
           :key="section.sectionCode"
           type="button"
           class="perm__tab"
-          :class="{ 'is-active': section.sectionCode === activeCode }"
+          :class="{ 'is-active': viewMode === 'section' && section.sectionCode === activeCode }"
           @click="switchSection(section.sectionCode)"
         >
           <span>{{ section.sectionName }}</span>
@@ -333,9 +430,103 @@ load()
           </span>
           <span v-else class="perm__tab-count">{{ section.fields.length }} 字段</span>
         </button>
+        <button
+          type="button"
+          class="perm__tab perm__tab--all"
+          :class="{ 'is-active': viewMode === 'all' }"
+          @click="showAll"
+        >
+          <span>全部板块</span>
+          <span class="perm__tab-count">{{ allStats.total }} 字段</span>
+        </button>
       </nav>
 
-      <div v-if="activeSection" class="perm__panel">
+      <!-- 全部板块总览：只读。配置仍按板块保存，这里只做跨板块核对 -->
+      <div v-if="viewMode === 'all'" class="perm__panel">
+        <header class="perm__panel-head">
+          <div>
+            <h2 class="perm__panel-title">全部板块 · 权限总览</h2>
+            <p class="perm__panel-sub">
+              共 {{ allStats.total }} 个字段 · 学生可编辑
+              <strong>{{ allStats.student }}</strong> · 老师可编辑
+              <strong>{{ allStats.counselor }}</strong> · 只读
+              <strong>{{ allStats.readonly }}</strong> · 已调整
+              <strong>{{ allStats.customized }}</strong> · 固定只读
+              <strong>{{ allStats.locked }}</strong>
+            </p>
+          </div>
+          <div class="perm__actions">
+            <button type="button" class="btn btn--ghost" :disabled="loading" @click="load">
+              重新加载
+            </button>
+            <button type="button" class="btn btn--primary" @click="switchSection(activeCode)">
+              按板块配置
+            </button>
+          </div>
+        </header>
+
+        <p class="perm__all-tip">
+          总览只读：配置按板块整批保存（一次事务），避免跨板块提交出现半成功。点板块名可直接进入该板块配置。
+        </p>
+
+        <div class="perm__table-wrap">
+          <table class="perm__table perm__table--all">
+            <thead>
+              <tr>
+                <th class="col-section">板块</th>
+                <th class="col-field">字段</th>
+                <th class="col-source">类型 / 来源</th>
+                <th class="col-current">当前生效</th>
+                <th class="col-visibility">可见性</th>
+                <th class="col-status">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in allRows"
+                :key="`${row.sectionCode}.${row.field.fieldCode}`"
+                :class="{ 'is-locked': row.field.locked, 'is-section-first': row.first }"
+              >
+                <td v-if="row.first" :rowspan="sectionSizeOf(row.sectionCode)" class="perm__section-cell">
+                  <button type="button" class="perm__section-link" @click="switchSection(row.sectionCode)">
+                    {{ row.sectionName }}
+                  </button>
+                  <span class="perm__section-count">{{ sectionSizeOf(row.sectionCode) }} 字段</span>
+                </td>
+                <td>
+                  <div class="perm__field-name">
+                    {{ row.field.fieldName }}
+                    <span v-if="row.field.required" class="perm__required" title="必填">*</span>
+                  </div>
+                  <div class="perm__field-code">{{ row.field.fieldCode }}</div>
+                </td>
+                <td>
+                  <div class="perm__chip">{{ row.field.fieldType }}</div>
+                  <div class="perm__source">{{ sourceLabel(row.field.source) }}</div>
+                </td>
+                <td>
+                  <span class="perm__mode-tag" :class="`mode--${row.field.permissionMode}`">
+                    {{ MODE_LABELS[row.field.permissionMode] }}
+                  </span>
+                </td>
+                <td>
+                  <span v-if="visibilityNote(row.field)" class="perm__visibility">
+                    {{ visibilityNote(row.field) }}
+                  </span>
+                  <span v-else class="perm__source">师生均可见</span>
+                </td>
+                <td>
+                  <span v-if="row.field.locked" class="status status--locked">固定只读</span>
+                  <span v-else-if="row.field.customized" class="status status--custom">已调整</span>
+                  <span v-else class="status status--default">默认</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-else-if="activeSection" class="perm__panel">
         <header class="perm__panel-head">
           <div>
             <h2 class="perm__panel-title">{{ activeSection.sectionName }}</h2>
@@ -583,6 +774,75 @@ load()
 .perm__tab-dirty {
   color: var(--color-warning);
   font-size: 11.5px;
+}
+
+/* 「全部板块」是总览而非配置容器：用虚线边框与实线页签区分 */
+.perm__tab--all {
+  border-style: dashed;
+  margin-left: 4px;
+}
+
+.perm__tab--all.is-active {
+  border-style: solid;
+}
+
+.perm__all-tip {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12.5px;
+}
+
+.perm__table--all {
+  min-width: 940px;
+}
+
+.col-section {
+  width: 12%;
+}
+
+.col-visibility {
+  width: 12%;
+}
+
+.perm__section-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary-dark);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.perm__section-link:hover {
+  color: var(--color-primary);
+}
+
+/* 板块名合并单元格：贴顶对齐 + 右侧细分隔线，读起来像分组表 */
+.perm__table td.perm__section-cell {
+  border-right: 1px solid #f1f5f9;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.perm__section-count {
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.perm__table tr.is-section-first td {
+  border-top: 1px solid #e2e8f0;
+}
+
+.perm__table tbody tr.is-section-first:first-child td {
+  border-top: none;
 }
 
 .perm__panel {

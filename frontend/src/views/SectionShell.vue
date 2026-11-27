@@ -244,12 +244,15 @@ watch(() => props.code, load, { immediate: true })
       </div>
     </header>
 
-    <!-- 管理员模式：只读查看 + 跳转权限配置，不允许借板块页改内容 -->
+    <!-- 管理员模式：只读查看 + 跳转本板块的权限配置，不允许借板块页改内容 -->
     <div v-if="isAdmin" class="alert alert--admin">
       <strong>管理员只读</strong>
       <span>
         管理员只负责配置字段编辑权限，不能修改板块内容。需要调整「谁能改哪个字段」请前往
-        <RouterLink to="/admin/permissions">字段权限配置</RouterLink>。
+        <RouterLink :to="{ path: '/admin/permissions', query: { section: props.code } }">
+          本板块字段权限
+        </RouterLink>
+        。
       </span>
     </div>
 

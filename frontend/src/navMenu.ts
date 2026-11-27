@@ -106,11 +106,12 @@ const ARCHIVE_ITEM: NavItem = {
  * 字段权限配置：仅管理员可见。
  *
  * <p>这是管理员模式的系统能力，不属于档案内容编辑，因此与六个板块菜单分开，
- * 放在「系统管理」分组；学生与辅导员没有该项，路由守卫也会拦截。</p>
+ * 放在「系统管理」分组；学生与辅导员没有该项，路由守卫也会拦截。
+ * 标签写全「字段权限配置」，与页面标题一致，避免被误读成账号/菜单权限。</p>
  */
 const PERMISSION_ITEM: NavItem = {
   key: 'permissions',
-  label: '权限配置',
+  label: '字段权限配置',
   icon: 'settings',
   to: '/admin/permissions',
   matchNames: ['admin-permissions'],
@@ -134,8 +135,18 @@ export function isStaff(role: UserRole | undefined): boolean {
  *
  * <p>管理员在此之上多一项「权限配置」（字段级编辑权限），属于系统管理能力；
  * 该页不含任何档案内容，管理员仍不能借它修改学生数据。</p>
+ *
+ * <p><b>管理员按「临时授权」而非「角色」收敛菜单</b>：管理员默认无业务数据权限
+ * （需求 2.1），无授权时看板与待审列表返回 EC-40302、板块详情只回空视图，
+ * 这些入口点进去必然被拒。因此只有持授权（{@code tempGrant}）时才出现
+ * 总览、六大板块与审核工作台；无授权时只留唯一可用的「字段权限配置」，
+ * 避免菜单里 9 项有 8 项是死路。</p>
  */
-export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
+export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavGroup[] {
+  if (role === 'ADMIN' && !tempGrant) {
+    // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM] }]
+  }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
       { key: 'overview', items: [OVERVIEW_ITEM] },

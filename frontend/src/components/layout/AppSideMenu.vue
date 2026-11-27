@@ -15,7 +15,7 @@ const route = useRoute()
 
 const user = getUser()
 
-const groups = computed(() => navGroupsOf(user?.role))
+const groups = computed(() => navGroupsOf(user?.role, user?.tempGrant === true))
 
 function isActive(matchNames: string[]): boolean {
   return matchNames.includes(String(route.name))
