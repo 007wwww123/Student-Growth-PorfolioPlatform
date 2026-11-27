@@ -261,6 +261,81 @@ check(
   `approve=${approved.status} now=${afterApprove.body.data.status} again=${again.status}`,
 )
 
+// 17. 毕业归档（S-1-11）：权限、整批拒绝（EX-12）、归档终态与重复提交
+const arcAsStu = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: STU_1001 })
+const arcAdminNoGrant = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: ADMIN })
+const arcOwn = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9001 })
+const arcOther = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9002 })
+check('归档名单（学生）403', arcAsStu.status === 403, `status=${arcAsStu.status}`)
+check('归档名单（管理员无授权）403', arcAdminNoGrant.status === 403, `status=${arcAdminNoGrant.status}`)
+check(
+  '归档名单（本班）',
+  arcOwn.status === 200 && arcOwn.body.data.length === 3 && arcOwn.body.data.every((item: any) => !item.archivable),
+  `rows=${arcOwn.body.data?.length} archivable=${arcOwn.body.data?.filter((i: any) => i.archivable).length}`,
+)
+check(
+  '归档名单（六板块全通过可归档）',
+  arcOther.status === 200 && arcOther.body.data.length >= 1 && arcOther.body.data[0].archivable === true,
+  `rows=${arcOther.body.data?.length} first=${arcOther.body.data?.[0]?.studentName}/${arcOther.body.data?.[0]?.approvedCount}`,
+)
+
+const archiveRejected = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [1001] }),
+)
+check(
+  '整批拒绝 + 未完成清单（EX-12）',
+  archiveRejected.status === 200 &&
+    archiveRejected.body.data.rejected === true &&
+    archiveRejected.body.data.archivedProfiles === 0 &&
+    archiveRejected.body.data.students[0].missingSections.length === 6,
+  `rejected=${archiveRejected.body.data?.rejected} missing=${archiveRejected.body.data?.students?.[0]?.missingSections?.length}`,
+)
+
+const crossArchive = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [1004] }),
+)
+check('跨班归档 403', crossArchive.status === 403, `status=${crossArchive.status} code=${crossArchive.body.code}`)
+
+const archived = await call(
+  `/archive/batch`,
+  json('POST', COU_9002, { academicYear: YEAR, studentIds: [1004] }),
+)
+check(
+  '归档成功：六板块转 LOCKED',
+  archived.status === 200 &&
+    archived.body.data.archivedStudents === 1 &&
+    archived.body.data.archivedProfiles === 6 &&
+    archived.body.data.rejected === false,
+  `students=${archived.body.data?.archivedStudents} profiles=${archived.body.data?.archivedProfiles}`,
+)
+
+const afterArchive = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9002 })
+check(
+  '归档后标记为已归档',
+  afterArchive.body.data[0].archived === true && afterArchive.body.data[0].lockedCount === 6,
+  `archived=${afterArchive.body.data?.[0]?.archived} locked=${afterArchive.body.data?.[0]?.lockedCount}`,
+)
+
+const archiveAgain = await call(
+  `/archive/batch`,
+  json('POST', COU_9002, { academicYear: YEAR, studentIds: [1004] }),
+)
+check(
+  '重复归档跳过',
+  archiveAgain.status === 200 &&
+    archiveAgain.body.data.skippedStudents === 1 &&
+    archiveAgain.body.data.archivedStudents === 0,
+  `skipped=${archiveAgain.body.data?.skippedStudents} archived=${archiveAgain.body.data?.archivedStudents}`,
+)
+
+const emptyArchive = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [] }),
+)
+check('归档空名单 400', emptyArchive.status === 400, `status=${emptyArchive.status}`)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)

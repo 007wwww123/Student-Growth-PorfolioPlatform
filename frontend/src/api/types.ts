@@ -186,3 +186,57 @@ export interface ReviewDecision {
   /** 退回理由，退回时必填且不少于 10 字 */
   reason?: string
 }
+
+
+/** 板块状态行，对应后端 ArchiveSectionStatusVO。 */
+export interface ArchiveSectionStatus {
+  /** 板块编码，大写 */
+  sectionCode: string
+  sectionName: string
+  /** 当前状态；未建档时为空 */
+  status?: ProfileStatus
+  /** 状态中文名；未建档时为「未建档」 */
+  statusLabel: string
+}
+
+/**
+ * 归档候选人，对应后端 ArchiveCandidateVO。
+ *
+ * 口径：六板块齐全且每块 APPROVED / LOCKED 才可归档；已归档也计入「完成」。
+ */
+export interface ArchiveCandidate {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  sectionCount: number
+  approvedCount: number
+  lockedCount: number
+  incompleteSections: ArchiveSectionStatus[]
+  archivable: boolean
+  archived: boolean
+}
+
+/** 单个学生的归档结果，对应后端 ArchiveStudentResultVO。 */
+export interface ArchiveStudentResult {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  className?: string
+  /** ARCHIVED 已归档 / SKIPPED 本就已归档 / INCOMPLETE 未完成 */
+  status: 'ARCHIVED' | 'SKIPPED' | 'INCOMPLETE'
+  /** 未完成的板块名称，仅 INCOMPLETE 时有值 */
+  missingSections?: string[]
+}
+
+/** 批量归档结果，对应后端 ArchiveResultVO。rejected=true 表示整批未执行（EX-12）。 */
+export interface ArchiveResult {
+  academicYear: string
+  requestedStudents: number
+  archivedStudents: number
+  archivedProfiles: number
+  skippedStudents: number
+  rejected: boolean
+  students: ArchiveStudentResult[]
+}

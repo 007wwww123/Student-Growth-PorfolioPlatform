@@ -187,7 +187,14 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
 | POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用**；
+毕业归档同样是跨板块能力（一次流转六条实例），单独一组路径：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/archive/candidates?academicYear=&classCode=` | 本班归档名单：六板块完成情况、可归档 / 已归档判定 |
+| POST | `/api/archive/batch` | 批量归档：全部通过才转 `LOCKED`，任一未完成整批拒绝（EX-12） |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量归档 2 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -202,6 +209,21 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 新增板块时**不需要**写审核代码：只要板块的提交动作调用 `ProfileWorkflowService.submit(...)`，
 就能被审核模块纳管。板块负责「内容是否齐全」，审核模块负责「谁能改、何时能改、留什么痕」。
+
+### 毕业归档模块（`com.college.growth.archive`）
+
+| 类 | 职责 |
+|---|---|
+| `ArchiveService` | 归档名单与整批归档：口径判定、整批拒绝（EX-12）、终态流转与留痕 |
+| `ArchiveController` | `/api/archive/**` 两个接口 |
+
+口径要点：
+
+- 「完成」= 六板块齐全且每块 `APPROVED` 或 `LOCKED`；已归档也计入，保证重复提交幂等；
+- 整批语义：先全量校验再统一写库，名单里只要一人未完成就谁都不动，返回未完成清单；
+- 阻断原因用 `Result.data.rejected` 表达而不是 HTTP 409——拒绝原因是一份清单，塞进错误体只能压成字符串；
+- 归档时把 `completed` 显式置为真，避免「全部通过」的结论在归档当天被重算清零；
+- 仅辅导员可写，且只能归档本班学生；管理员持临时授权只读，学生不涉及。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 
