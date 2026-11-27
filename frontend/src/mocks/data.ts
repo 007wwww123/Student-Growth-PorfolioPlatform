@@ -1,4 +1,8 @@
 import type {
+  ArchiveCandidate,
+  ArchiveResult,
+  ArchiveSectionStatus,
+  ArchiveStudentResult,
   BatchCreateResult,
   EnrollClass,
   EnrollStudentResult,
@@ -272,6 +276,15 @@ const ACCOUNTS: MockAccount[] = [
 
 const ROLE_LABELS: Record<UserRole, string> = { STU: '学生', COU: '辅导员', ADMIN: '管理员' }
 
+/** 板块状态中文名，与后端 ProfileStatusEnum 一致。 */
+const STATUS_LABELS: Record<ProfileStatus, string> = {
+  DRAFT: '草稿',
+  SUBMITTED: '已提交',
+  RETURNED: '已退回',
+  APPROVED: '已通过',
+  LOCKED: '已归档',
+}
+
 /** 请求身份，等价于后端 CurrentUser。 */
 export interface MockIdentity {
   userId: number
@@ -349,6 +362,14 @@ interface MockSection extends SectionVO {
 }
 
 const store = new Map<string, MockSection>()
+
+/** 六板块编码，顺序与 SectionCodeEnum 一致。 */
+const ALL_SECTIONS = Object.keys(SECTION_NAMES) as SectionCode[]
+
+/** 学生某学年已真实创建的板块实例（惰性占位的不算）。 */
+function existingSections(studentId: number, year: string): SectionCode[] {
+  return ALL_SECTIONS.filter((code) => store.has(keyOf(code, studentId, year)))
+}
 
 function keyOf(code: SectionCode, studentId: number, academicYear: string): string {
   return `${code}:${studentId}:${academicYear}`
@@ -441,7 +462,10 @@ function ensureSeed(): void {
   returned.submittedAt = '2026-11-25T16:10:00'
   returned.reviewedAt = '2026-11-26T08:20:00'
   returned.reviewReason = '紧急联系电话与学工系统不一致，请核对后重新提交。'
-  createSection('basic', 1004, year, 'DRAFT')
+  // 赵敏（1004，电子2401）六板块全部通过，用于演示毕业归档的正向路径
+  for (const code of ALL_SECTIONS) {
+    createSection(code, 1004, year, 'APPROVED')
+  }
 }
 
 function maskIdCard(value: string): string {
@@ -749,13 +773,7 @@ export function listTasks(
       sectionName: section.sectionName,
       academicYear: section.academicYear,
       status: section.status,
-      statusLabel: {
-        DRAFT: '草稿',
-        SUBMITTED: '已提交',
-        RETURNED: '已退回',
-        APPROVED: '已通过',
-        LOCKED: '已归档',
-      }[section.status],
+      statusLabel: STATUS_LABELS[section.status],
       completeness: completeOf(section),
       submitCount: section.submitCount,
       submittedAt: section.submittedAt,
@@ -839,13 +857,6 @@ export function rejectSection(
 /** 重置内存数据，供测试或热更新使用。 */
 export function resetStore(): void {
   store.clear()
-}
-
-const ALL_SECTIONS = Object.keys(SECTION_NAMES) as SectionCode[]
-
-/** 学生某学年已有几个板块实例（只认已真实创建的，惰性创建的占位不算）。 */
-function existingSections(studentId: number, year: string): SectionCode[] {
-  return ALL_SECTIONS.filter((code) => store.has(keyOf(code, studentId, year)))
 }
 
 /**
@@ -952,5 +963,184 @@ export function batchCreateProfiles(
     createdProfiles,
     existingProfiles,
     students: items,
+  }
+}
+
+/** 归档候选人（S-1-11）：六板块齐全且全部通过才可归档；已归档计入完成。 */
+export function listArchiveCandidates(
+  academicYear: string,
+  role: UserRole,
+  userId: number,
+  tempGrant: boolean,
+  classCode?: string,
+): ArchiveCandidate[] {
+  ensureSeed()
+  if (role === 'STU') {
+    throw new MockError('EC-40302', '无权查看归档名单', 403)
+  }
+  if (role === 'ADMIN' && !tempGrant) {
+    throw new MockError('EC-40302', '管理员默认无业务数据权限', 403)
+  }
+  const scope =
+    role === 'COU'
+      ? Object.keys(CLASS_NAMES).filter((code) => CLASS_COUNSELOR[code] === userId)
+      : Object.keys(CLASS_NAMES)
+  if (classCode && !scope.includes(classCode)) {
+    throw new MockError('EC-40302', '无权访问该班级的归档名单', 403)
+  }
+  const targetClasses = classCode ? [classCode] : scope
+  const students = Object.entries(STUDENTS)
+    .map(([id, student]) => ({ id: Number(id), ...student }))
+    .filter((student) => targetClasses.includes(student.classId))
+    .sort((left, right) => left.no.localeCompare(right.no))
+
+  return students.map((student) => {
+    const owned = existingSections(student.id, academicYear)
+    const incomplete: ArchiveSectionStatus[] = []
+    let approvedCount = 0
+    let lockedCount = 0
+    for (const code of ALL_SECTIONS) {
+      const section = store.get(keyOf(code, student.id, academicYear))
+      if (!section) {
+        incomplete.push({
+          sectionCode: code.toUpperCase(),
+          sectionName: SECTION_NAMES[code],
+          statusLabel: '未建档',
+        })
+        continue
+      }
+      if (section.status === 'APPROVED') {
+        approvedCount++
+      } else if (section.status === 'LOCKED') {
+        lockedCount++
+      } else {
+        incomplete.push({
+          sectionCode: code.toUpperCase(),
+          sectionName: SECTION_NAMES[code],
+          status: section.status,
+          statusLabel: STATUS_LABELS[section.status],
+        })
+      }
+    }
+    return {
+      studentId: student.id,
+      studentNo: student.no,
+      studentName: student.name,
+      classCode: student.classId,
+      className: CLASS_NAMES[student.classId],
+      sectionCount: owned.length,
+      approvedCount,
+      lockedCount,
+      incompleteSections: incomplete,
+      archivable: incomplete.length === 0 && owned.length === ALL_SECTIONS.length,
+      archived: lockedCount === ALL_SECTIONS.length,
+    }
+  })
+}
+
+/**
+ * 批量归档（S-1-11 / EX-12）。
+ *
+ * <p>先全量校验再统一写库：名单里只要有一个人没完成，整批都不动，
+ * 返回未完成清单；成功时把六板块置为 LOCKED。</p>
+ */
+export function archiveStudents(
+  academicYear: string,
+  studentIds: number[],
+  role: UserRole,
+  userId: number,
+): ArchiveResult {
+  ensureSeed()
+  if (role !== 'COU') {
+    throw new MockError('EC-40302', '仅辅导员可以执行毕业归档', 403)
+  }
+  if (!Array.isArray(studentIds) || studentIds.length === 0) {
+    throw new MockError('EC-40002', '请至少选择一名学生', 400)
+  }
+  const uniqueIds = [...new Set(studentIds.map(Number))]
+  const allStudents = Object.entries(STUDENTS).map(([id, student]) => ({
+    id: Number(id),
+    ...student,
+  }))
+  const students = uniqueIds
+    .map((id) => allStudents.find((student) => student.id === id))
+    .filter((student): student is (typeof allStudents)[number] => student != null)
+  if (students.length !== uniqueIds.length) {
+    throw new MockError('EC-40002', '部分学生不存在，请刷新名单后重试', 400)
+  }
+  for (const student of students) {
+    if (CLASS_COUNSELOR[student.classId] !== userId) {
+      throw new MockError('EC-40302', '只能归档本班学生', 403)
+    }
+  }
+
+  const incomplete: ArchiveStudentResult[] = []
+  const archivable: number[] = []
+  let skippedStudents = 0
+  for (const student of students) {
+    const missing = ALL_SECTIONS.filter((code) => {
+      const section = store.get(keyOf(code, student.id, academicYear))
+      return !section || (section.status !== 'APPROVED' && section.status !== 'LOCKED')
+    }).map((code) => SECTION_NAMES[code])
+    if (missing.length > 0) {
+      incomplete.push({
+        studentId: student.id,
+        studentNo: student.no,
+        studentName: student.name,
+        className: CLASS_NAMES[student.classId],
+        status: 'INCOMPLETE',
+        missingSections: missing,
+      })
+      continue
+    }
+    const allLocked = ALL_SECTIONS.every(
+      (code) => store.get(keyOf(code, student.id, academicYear))?.status === 'LOCKED',
+    )
+    if (allLocked) {
+      skippedStudents++
+    } else {
+      archivable.push(student.id)
+    }
+  }
+
+  if (incomplete.length > 0) {
+    return {
+      academicYear,
+      requestedStudents: students.length,
+      archivedStudents: 0,
+      archivedProfiles: 0,
+      skippedStudents,
+      rejected: true,
+      students: incomplete,
+    }
+  }
+
+  for (const studentId of archivable) {
+    for (const code of ALL_SECTIONS) {
+      const section = store.get(keyOf(code, studentId, academicYear))
+      if (section) {
+        section.status = 'LOCKED'
+      }
+    }
+  }
+
+  return {
+    academicYear,
+    requestedStudents: students.length,
+    archivedStudents: archivable.length,
+    archivedProfiles: archivable.length * ALL_SECTIONS.length,
+    skippedStudents,
+    rejected: false,
+    students: archivable.map((studentId) => {
+      const student = STUDENTS[studentId]!
+      return {
+        studentId,
+        studentNo: student.no,
+        studentName: student.name,
+        className: CLASS_NAMES[student.classId],
+        status: 'ARCHIVED' as const,
+        missingSections: [],
+      }
+    }),
   }
 }

@@ -116,6 +116,7 @@ frontend/
 | `/review` | `review-list` | `review/ReviewListView.vue` | — | 审核工作台：待审 / 已通过 / 已退回，`meta.roles = [COU, ADMIN]` |
 | `/review/:code/:studentId` | `review-detail` | `review/ReviewDetailView.vue` | — | 审核详情：只读字段、待确认值处理、通过 / 退回，同样限 `COU` / `ADMIN` |
 | `/enroll` | `enroll` | `EnrollView.vue` | — | 批量建档：本班建档进度、按班级生成六板块空档案，`meta.roles = [COU]` |
+| `/archive` | `archive` | `ArchiveView.vue` | — | 毕业归档：本班名单、六板块完成情况、批量归档与未完成清单，`meta.roles = [COU]` |
 | `/forbidden` | `forbidden` | `ForbiddenView.vue` | — | 角色不足时的落地页 |
 | `/:pathMatch(.*)*` | `not-found` | `NotFoundView.vue` | — | 404 |
 
@@ -160,8 +161,8 @@ frontend/
 ### 数据流
 
 ```
-SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue / EnrollView.vue
-  → api/sections.ts、api/review.ts、api/profiles.ts、api/auth.ts
+SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue / EnrollView.vue / ArchiveView.vue
+  → api/sections.ts、api/review.ts、api/profiles.ts、api/archive.ts、api/auth.ts
   → api/http.ts（axios，baseURL=/api，注入 Authorization: Bearer）
   → Result 解包：code === '0' 返回 data；否则抛 ApiError(code / message / details / traceId)
   → 组件：成功刷新详情；失败按 code 展示提示，details 映射为字段下方红字

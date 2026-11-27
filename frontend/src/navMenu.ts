@@ -87,6 +87,20 @@ const ENROLL_ITEM: NavItem = {
   matchNames: ['enroll'],
 }
 
+/**
+ * 毕业归档（S-1-11）：仅辅导员可见。
+ *
+ * <p>归档同样是业务写操作，管理员持的是一次性只读授权，服务端会拒绝，
+ * 因此不出现在管理员菜单里。</p>
+ */
+const ARCHIVE_ITEM: NavItem = {
+  key: 'archive',
+  label: '毕业归档',
+  icon: 'review',
+  to: '/archive',
+  matchNames: ['archive'],
+}
+
 /** 教师、管理员共用一类菜单：总览 + 六大模块 + 审核工作台。 */
 export function isStaff(role: UserRole | undefined): boolean {
   return role === 'COU' || role === 'ADMIN'
@@ -113,7 +127,7 @@ export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
     ]
     // 档案管理只有辅导员有写权限；管理员保持 8 项不变（总览 + 六模块 + 审核）
     if (role === 'COU') {
-      groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM] })
+      groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM] })
     }
     return groups
   }

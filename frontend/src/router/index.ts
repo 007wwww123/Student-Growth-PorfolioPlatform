@@ -83,6 +83,13 @@ const router = createRouter({
       meta: { title: '批量建档', roles: ['COU'] },
     },
     {
+      path: '/archive',
+      name: 'archive',
+      component: () => import('@/views/ArchiveView.vue'),
+      // 归档是辅导员的业务写操作，管理员为只读授权，不在角色范围内
+      meta: { title: '毕业归档', roles: ['COU'] },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),

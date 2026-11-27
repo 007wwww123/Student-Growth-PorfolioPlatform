@@ -4,10 +4,12 @@ import type { FieldErrorDetail, SectionCode } from '../api/types'
 import {
   MockError,
   approveSection,
+  archiveStudents,
   authenticate,
   batchCreateProfiles,
   getSection,
   handlePending,
+  listArchiveCandidates,
   listEnrollClasses,
   listTasks,
   loginUser,
@@ -390,6 +392,34 @@ export const handlers = [
     }
     return withAuth(request, (who) =>
       ok(batchCreateProfiles(academicYear, classCodes, who.role, who.userId)),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/archive/candidates`, ({ request }) => {
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    const classCode = url.searchParams.get('classCode') ?? undefined
+    return withAuth(request, (who) =>
+      ok(listArchiveCandidates(academicYear, who.role, who.userId, who.tempGrant, classCode)),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/archive/batch`, async ({ request }) => {
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
+    const studentIds = Array.isArray(body.studentIds)
+      ? body.studentIds.map((item) => Number(item))
+      : []
+    if (studentIds.length === 0) {
+      return fail('EC-40002', '请至少选择一名学生', 400)
+    }
+    return withAuth(request, (who) =>
+      ok(archiveStudents(academicYear, studentIds, who.role, who.userId)),
     )
   }),
 ]

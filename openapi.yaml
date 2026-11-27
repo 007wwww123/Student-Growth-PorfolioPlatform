@@ -828,6 +828,46 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /archive/candidates:
+    get:
+      tags: [归档]
+      operationId: listArchiveCandidates
+      summary: 归档候选人与六板块完成情况
+      description: |
+        毕业归档页（S-1-11）的名单。辅导员只看到本班学生，管理员需持临时授权；
+        其他角色返回 `EC-40302`。
+
+        判定口径：六板块齐全且每块为 `APPROVED` 或 `LOCKED` 才 `archivable=true`；
+        已归档也计入完成，否则重复提交同一批名单会永远被判为未完成。
+        未建档学生同样会出现在名单里（`sectionCount = 0`），避免「根本没开始」的人从列表消失。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: classCode
+          in: query
+          required: false
+          description: 班级编码；不传表示本人全部带班班级
+          schema:
+            type: string
+            example: DZ2401
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ArchiveCandidateVO'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /profiles/batch-create:
     post:
       tags: [建档]
@@ -865,6 +905,47 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /archive/batch:
+    post:
+      tags: [归档]
+      operationId: archiveBatch
+      summary: 批量归档
+      description: |
+        六板块全部通过后整体转 `LOCKED`（终态，仅 ADMIN 可解冻），并逐块写 `ARCHIVE` 变更日志。
+
+        - **整批语义（EX-12）**：名单内只要有一名学生存在未完成板块，整批不执行，
+          `rejected = true`，`students` 返回未完成清单，`archivedStudents = 0`；
+        - 结果用 200 返回而不是 409：拒绝原因是一份清单，压成错误字符串会丢结构，
+          错误码只用于真正的非法请求（400/403/409 乐观锁）；
+        - 已归档学生按跳过处理（`skippedStudents`），不重复写库；
+        - 仅辅导员可调用，且只能归档本班学生；单批最多 200 人。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveBatchDTO'
+      responses:
+        '200':
+          description: 归档结果（可能被整批拒绝）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ArchiveResultVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1690,3 +1771,145 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/StudentEnrollItemVO'
+
+    ArchiveSectionStatusVO:
+      type: object
+      description: 板块状态行（归档清单里的未完成板块）
+      properties:
+        sectionCode:
+          type: string
+          example: ACADEMIC
+        sectionName:
+          type: string
+          example: 学业发展
+        status:
+          type: string
+          nullable: true
+          enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+          description: 当前状态；未建档时为空
+        statusLabel:
+          type: string
+          example: 未建档
+
+    ArchiveCandidateVO:
+      type: object
+      description: 归档候选人（一名学生某学年的六板块完成情况）
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1004
+        studentNo:
+          type: string
+          example: '2024010301'
+        studentName:
+          type: string
+          example: 赵敏
+        classCode:
+          type: string
+          example: DZ2401
+        className:
+          type: string
+          example: 电子2401
+        sectionCount:
+          type: integer
+          description: 已存在的板块实例数，0–6
+          example: 6
+        approvedCount:
+          type: integer
+          example: 6
+        lockedCount:
+          type: integer
+          example: 0
+        incompleteSections:
+          type: array
+          description: 未完成（未建档或未通过）的板块，空数组表示六块都已完成
+          items:
+            $ref: '#/components/schemas/ArchiveSectionStatusVO'
+        archivable:
+          type: boolean
+          description: 六板块齐全且全部完成
+          example: true
+        archived:
+          type: boolean
+          description: 六板块均已 LOCKED
+          example: false
+
+    ArchiveBatchDTO:
+      type: object
+      description: 批量归档入参
+      required: [studentIds]
+      properties:
+        academicYear:
+          type: string
+          description: 学年，为空取当前学年
+          example: 2025-2026-1
+        studentIds:
+          type: array
+          description: 待归档学生 ID，最多 200 人
+          maxItems: 200
+          items:
+            type: integer
+            format: int64
+          example: [1004]
+
+    ArchiveStudentResultVO:
+      type: object
+      description: 单个学生的归档结果
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1004
+        studentNo:
+          type: string
+          example: '2024010301'
+        studentName:
+          type: string
+          example: 赵敏
+        className:
+          type: string
+          example: 电子2401
+        status:
+          type: string
+          enum: [ARCHIVED, SKIPPED, INCOMPLETE]
+          description: ARCHIVED 本次归档 / SKIPPED 本就已归档 / INCOMPLETE 未完成
+          example: ARCHIVED
+        missingSections:
+          type: array
+          description: 未完成的板块名称，仅 INCOMPLETE 时有值
+          items:
+            type: string
+          example: [学业发展, 职业规划]
+
+    ArchiveResultVO:
+      type: object
+      description: 批量归档结果
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        requestedStudents:
+          type: integer
+          example: 1
+        archivedStudents:
+          type: integer
+          example: 1
+        archivedProfiles:
+          type: integer
+          description: 本次转为已归档的板块实例数
+          example: 6
+        skippedStudents:
+          type: integer
+          description: 本就已归档、本次跳过的学生数
+          example: 0
+        rejected:
+          type: boolean
+          description: 是否因存在未完成板块整批拒绝（此时 archivedStudents = 0）
+          example: false
+        students:
+          type: array
+          description: 拒绝时为未完成清单；成功时为本次归档与跳过的学生
+          items:
+            $ref: '#/components/schemas/ArchiveStudentResultVO'
+

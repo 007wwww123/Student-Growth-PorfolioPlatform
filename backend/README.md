@@ -194,7 +194,14 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | GET | `/api/profiles/classes?academicYear=` | 本班建档进度：在读人数、已建档人数、待建档人数 |
 | POST | `/api/profiles/batch-create` | 按学年 + 班级批量生成六板块空实例，已存在跳过（EX-01） |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用**；
+毕业归档同样是跨板块能力（一次流转六条实例），单独一组路径：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/archive/candidates?academicYear=&classCode=` | 本班归档名单：六板块完成情况、可归档 / 已归档判定 |
+| POST | `/api/archive/batch` | 批量归档：全部通过才转 `LOCKED`，任一未完成整批拒绝（EX-12） |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -222,6 +229,21 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 - 只允许辅导员调用，且只能处理本人带班班级（`org_class.counselor_user_id`）；管理员为只读授权，返回 `EC-40302`；
 - 学生清单来自 `stu_student`（在读），请求体不传学生 ID，避免越权建档；
 - 只建 `arc_profile`，不写 `arc_profile_item`、不触发审核；字段值仍由各板块保存接口与学工同步写入。
+
+### 毕业归档模块（`com.college.growth.archive`）
+
+| 类 | 职责 |
+|---|---|
+| `ArchiveService` | 归档名单与整批归档：口径判定、整批拒绝（EX-12）、终态流转与留痕 |
+| `ArchiveController` | `/api/archive/**` 两个接口 |
+
+口径要点：
+
+- 「完成」= 六板块齐全且每块 `APPROVED` 或 `LOCKED`；已归档也计入，保证重复提交幂等；
+- 整批语义：先全量校验再统一写库，名单里只要一人未完成就谁都不动，返回未完成清单；
+- 阻断原因用 `Result.data.rejected` 表达而不是 HTTP 409——拒绝原因是一份清单，塞进错误体只能压成字符串；
+- 归档时把 `completed` 显式置为真，避免「全部通过」的结论在归档当天被重算清零；
+- 仅辅导员可写，且只能归档本班学生；管理员持临时授权只读，学生不涉及。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 

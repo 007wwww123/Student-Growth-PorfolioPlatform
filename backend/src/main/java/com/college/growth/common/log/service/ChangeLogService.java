@@ -29,6 +29,9 @@ public class ChangeLogService {
     /** 日志业务类型：审核或敏感字段查看。 */
     public static final String BIZ_REVIEW = "REVIEW";
 
+    /** 日志业务类型：毕业归档（S-1-11，六板块批量转 LOCKED）。 */
+    public static final String BIZ_ARCHIVE = "ARCHIVE";
+
     /** 操作来源：页面。 */
     public static final String SOURCE_WEB = "WEB";
 
