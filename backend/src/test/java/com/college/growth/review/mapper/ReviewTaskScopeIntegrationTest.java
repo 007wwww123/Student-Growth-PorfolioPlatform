@@ -31,11 +31,13 @@ class ReviewTaskScopeIntegrationTest {
                 """, YEAR, YEAR, YEAR, YEAR, YEAR, YEAR);
         db.update("""
                 INSERT INTO arc_profile_item(id,profile_id,field_code,value_text) VALUES
-                (-61,-74,'basic.classId','SCOPE1'),(-62,-75,'basic.classId','SCOPE1'),(-63,-77,'basic.classId','SCOPE1')
+                (-61,-74,'basic.classId','测试一班'),(-62,-75,'basic.classId','SCOPE1'),(-63,-77,'basic.classId','SCOPE1')
                 """);
         var page = mapper.selectTaskPage(new Page<>(1, 10), "ACADEMIC", "SUBMITTED", YEAR, "SCOPE1", 9001L);
         assertEquals(2, page.getTotal());
         assertEquals(List.of(-81L, -83L), page.getRecords().stream().map(ArcProfile::getStudentId).toList());
+        var legacyClass = mapper.selectStudentFields(List.of(-83L), List.of("basic.classId"), YEAR);
+        assertEquals(List.of("SCOPE1"), legacyClass.stream().map(StudentFieldRow::getValueText).toList());
         var fields = mapper.selectStudentFields(List.of(-81L), List.of("basic.name", "basic.classId"), YEAR);
         assertEquals(List.of("SCOPE1", "学籍姓名"), fields.stream().map(StudentFieldRow::getValueText).sorted().toList());
     }
