@@ -56,8 +56,9 @@ backend/
 │   │   │   │   ├── student/                     # 学生主数据（SIS 落地副本）与字段同步
 │   │   │   │   ├── util/                        # 文本规范化、学年计算
 │   │   │   │   └── web/                         # TraceIdFilter、JwtAuthFilter（令牌校验与身份注入）
-│   │   │   ├── config/                          # JacksonConfig、MybatisPlusConfig
+│   │   │   ├── config/                          # JacksonConfig、MybatisPlusConfig、SchedulingConfig
 │   │   │   ├── review/                          # 公共审核模块（六板块共用，见第六节）
+│   │   │   ├── completion/                      # 完成标记（BR-S10）：判定、重算、定时补偿
 │   │   │   ├── basic/                           # 板块一 基本信息
 │   │   │   ├── academic/                        # 板块二 学业发展
 │   │   │   ├── interest/                        # 板块三 兴趣特长
@@ -72,6 +73,7 @@ backend/
 │       ├── auth/service/                         # PasswordHasher（5）、JwtService（7）、AuthService（8）
 │       ├── basic/service/                        # 板块一详情、保存、提交、越权与校验分支
 │       ├── common/                               # 字段校验器、班级归属、待确认区、SIS 同步、文本规范化
+│       ├── completion/service/                   # 完成标记：判定口径、幂等重算、权限与整学年统计
 │       └── review/service/                       # 状态机：提交、撤回、通过、退回
 └── README.md
 ```
@@ -201,7 +203,14 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | GET | `/api/archive/candidates?academicYear=&classCode=` | 本班归档名单：六板块完成情况、可归档 / 已归档判定 |
 | POST | `/api/archive/batch` | 批量归档：全部通过才转 `LOCKED`，任一未完成整批拒绝（EX-12） |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用**；
+完成标记是「学生 × 学年」级别的派生结论，同样单独一组路径：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/completion/students/{studentId}?academicYear=` | 读取六板块完成标记与逐板块状态（固定六项，缺块为「未建档」） |
+| POST | `/api/completion/refresh?studentId=&academicYear=` | 手动重算；省略 `studentId` 即整学年（仅持授权管理员），幂等，写 `COMPLETION` 审计 |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -244,6 +253,26 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 - 阻断原因用 `Result.data.rejected` 表达而不是 HTTP 409——拒绝原因是一份清单，塞进错误体只能压成字符串；
 - 归档时把 `completed` 显式置为真，避免「全部通过」的结论在归档当天被重算清零；
 - 仅辅导员可写，且只能归档本班学生；管理员持临时授权只读，学生不涉及。
+
+### 完成标记模块（`com.college.growth.completion`）
+
+| 类 | 职责 |
+|---|---|
+| `CompletionService` | 唯一完成判定：`APPROVED` / `LOCKED` 按板块编码去重后凑满六块才算完成 |
+| `CompletionServiceImpl` | 幂等重算（只在标记翻转时写库）、权限判定、整学年统计 |
+| `CompletionRefreshTask` | 每天 03:30 重算当前学年，补偿绕过状态机的旁路数据 |
+| `CompletionController` | `/api/completion/**` 两个接口 |
+
+三条入口共用一套口径，都不允许自己数板块：
+
+1. **状态流转**：`ProfileWorkflowServiceImpl` 在提交 / 撤回 / 通过 / 退回后调用 `CompletionService.refresh(...)`，与流转同事务；
+2. **定时补偿**：`CompletionRefreshTask` 扫当前学年，只处理直接改库、修数脚本、迁移导入这类没走状态机的数据；
+3. **手动重算**：`POST /api/completion/refresh`，运维补偿用，每次写一条审计日志。
+
+标记写在六条 `arc_profile.completed` 上（「学生 × 学年」级别冗余），更新用 `lambdaUpdate` 而不走 `updateById`——
+派生标记不参与乐观锁，否则会和正在编辑的板块抢版本号触发 `EC-40907`。
+**已归档（`LOCKED`）计为完成**：归档是完成之后的终态，不能反过来把标记算回未完成。
+**与归档的衔接**：`ArchiveServiceImpl` 归档时显式把 `completed` 置真，即便归档动作本身不触发状态机重算也不会被算回未完成。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 
@@ -311,6 +340,8 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | `JWT_SECRET` | 32 位开发用默认值 | 令牌签名密钥，**生产必须覆盖**；少于 32 字符启动失败 |
 | `JWT_TTL_HOURS` | `8` | 令牌有效期（小时），同时决定吊销名单的 TTL 上限 |
 | `LOG_LEVEL_APP` | `debug` | 业务包日志级别，生产建议 `info` |
+| `COMPLETION_REFRESH_ENABLED` | `true` | 完成标记定时补偿开关；多实例部署时可只在一台上开启 |
+| `COMPLETION_REFRESH_CRON` | `0 30 3 * * ?` | 补偿任务执行时间，Spring 6 段 cron |
 
 固定项，改动前先确认影响：
 

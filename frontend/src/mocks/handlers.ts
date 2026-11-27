@@ -7,12 +7,14 @@ import {
   archiveStudents,
   authenticate,
   batchCreateProfiles,
+  completionStatus,
   getSection,
   handlePending,
   listArchiveCandidates,
   listEnrollClasses,
   listTasks,
   loginUser,
+  refreshCompletion,
   rejectSection,
   revealValue,
   roleLabelOf,
@@ -420,6 +422,47 @@ export const handlers = [
     }
     return withAuth(request, (who) =>
       ok(archiveStudents(academicYear, studentIds, who.role, who.userId)),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/completion/students/:studentId`, ({ params, request }) => {
+    const studentId = parseId(params.studentId as string)
+    if (!studentId) {
+      return fail('EC-40003', '参数不合法', 400)
+    }
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    return withAuth(request, (who) =>
+      ok(
+        completionStatus(
+          studentId,
+          academicYear,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/completion/refresh`, ({ request }) => {
+    const url = new URL(request.url)
+    const rawStudentId = url.searchParams.get('studentId')
+    const studentId = rawStudentId ? parseId(rawStudentId) : undefined
+    if (rawStudentId && !studentId) {
+      return fail('EC-40003', '参数不合法', 400)
+    }
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    return withAuth(request, (who) =>
+      ok(
+        refreshCompletion(
+          academicYear,
+          studentId ?? undefined,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
     )
   }),
 ]

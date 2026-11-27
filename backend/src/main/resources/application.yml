@@ -70,6 +70,12 @@ security:
     # 令牌有效期（小时），前端据此决定提前续期
     ttl-hours: ${JWT_TTL_HOURS:8}
 
+growth:
+  completion:
+    # 完成标记补偿重算（BR-S10）：每天 03:30 扫一遍当前学年，只处理绕过状态机的旁路数据
+    refresh-enabled: ${COMPLETION_REFRESH_ENABLED:true}
+    refresh-cron: ${COMPLETION_REFRESH_CRON:0 30 3 * * ?}
+
 logging:
   level:
     root: info

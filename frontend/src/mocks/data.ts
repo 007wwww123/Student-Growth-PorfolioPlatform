@@ -4,6 +4,9 @@ import type {
   ArchiveSectionStatus,
   ArchiveStudentResult,
   BatchCreateResult,
+  CompletionRefreshResult,
+  CompletionSection,
+  CompletionStatus,
   EnrollClass,
   EnrollStudentResult,
   FieldMeta,
@@ -42,6 +45,15 @@ const SECTION_NAMES: Record<SectionCode, string> = {
   life: '生活心理',
   career: '职业规划',
   mentor: '导师寄语',
+}
+
+/** 状态中文名，供完成标记与列表复用。 */
+const STATUS_LABELS: Record<ProfileStatus, string> = {
+  DRAFT: '草稿',
+  SUBMITTED: '已提交',
+  RETURNED: '已退回',
+  APPROVED: '已通过',
+  LOCKED: '已归档',
 }
 
 /** 字段定义（mock 版），与 arc_field_def 的关键列一致。 */
@@ -275,15 +287,6 @@ const ACCOUNTS: MockAccount[] = [
 ]
 
 const ROLE_LABELS: Record<UserRole, string> = { STU: '学生', COU: '辅导员', ADMIN: '管理员' }
-
-/** 板块状态中文名，与后端 ProfileStatusEnum 一致。 */
-const STATUS_LABELS: Record<ProfileStatus, string> = {
-  DRAFT: '草稿',
-  SUBMITTED: '已提交',
-  RETURNED: '已退回',
-  APPROVED: '已通过',
-  LOCKED: '已归档',
-}
 
 /** 请求身份，等价于后端 CurrentUser。 */
 export interface MockIdentity {
@@ -852,6 +855,148 @@ export function rejectSection(
   section.reviewerId = userId
   section.reviewedAt = new Date().toISOString().slice(0, 19)
   section.reviewReason = reason.trim()
+}
+
+/** 已完成口径：已通过与已归档都算完成（归档不能把标记算回未完成）。 */
+const COMPLETED_STATUSES: ProfileStatus[] = ['APPROVED', 'LOCKED']
+
+/**
+ * 完成标记读取权限：学生限本人，辅导员限本班，管理员需持临时授权。
+ *
+ * <p>与后端 CompletionServiceImpl 一致：这里只读店铺里的记录，不会因为查询而给缺块学生补建档案，
+ * 否则「打开一次审核详情就多出六条草稿」，与真实后端行为相反。</p>
+ */
+function assertCanReadCompletion(
+  studentId: number,
+  year: string,
+  role: UserRole,
+  userId: number,
+  tempGrant: boolean,
+): void {
+  if (role === 'STU') {
+    if (studentId !== userId) {
+      throw new MockError('EC-40302', '只能查看本人档案的完成标记', 403)
+    }
+    return
+  }
+  if (role === 'COU') {
+    if (CLASS_COUNSELOR[classOfStudent(studentId, year)] !== userId) {
+      throw new MockError('EC-40302', '该学生不在你负责的班级内', 403)
+    }
+    return
+  }
+  if (!tempGrant) {
+    throw new MockError('EC-40302', '无权查看完成标记', 403)
+  }
+}
+
+/** 完成标记：固定六项，缺块显示「未建档」并计入未完成清单（BR-S10）。 */
+export function completionStatus(
+  studentId: number,
+  academicYear: string,
+  role: UserRole,
+  userId: number,
+  tempGrant: boolean,
+): CompletionStatus {
+  ensureSeed()
+  assertCanReadCompletion(studentId, academicYear, role, userId, tempGrant)
+
+  const sections: CompletionSection[] = []
+  const pendingSections: string[] = []
+  let createdSectionCount = 0
+  let completedSectionCount = 0
+  for (const code of ALL_SECTIONS) {
+    const raw = store.get(keyOf(code, studentId, academicYear))
+    const completed = raw ? COMPLETED_STATUSES.includes(raw.status) : false
+    if (raw) {
+      createdSectionCount += 1
+    }
+    if (completed) {
+      completedSectionCount += 1
+    } else {
+      pendingSections.push(SECTION_NAMES[code])
+    }
+    sections.push({
+      sectionCode: code,
+      sectionName: SECTION_NAMES[code],
+      status: raw?.status,
+      statusLabel: raw ? STATUS_LABELS[raw.status] : '未建档',
+      completed,
+    })
+  }
+
+  const basic = store.get(keyOf('basic', studentId, academicYear))
+  const classCode = classOfStudent(studentId, academicYear)
+  return {
+    studentId,
+    studentNo: String(basic?.fields.studentNo ?? STUDENTS[studentId]?.no ?? ''),
+    studentName: String(basic?.fields.name ?? STUDENTS[studentId]?.name ?? ''),
+    classCode,
+    className: CLASS_NAMES[classCode],
+    academicYear,
+    completed: completedSectionCount >= ALL_SECTIONS.length,
+    createdSectionCount,
+    completedSectionCount,
+    pendingSections,
+    sections,
+  }
+}
+
+/**
+ * 手动重算完成标记（运维补偿）。
+ *
+ * <p>mock 不保存派生标记，因此这里只回算并返回统计；{@code changedStudents} 恒为 0，
+ * 真实后端会在标记翻转时写库并返回 1。</p>
+ */
+export function refreshCompletion(
+  academicYear: string,
+  studentId: number | undefined,
+  role: UserRole,
+  userId: number,
+  tempGrant: boolean,
+): CompletionRefreshResult {
+  ensureSeed()
+  if (role !== 'COU' && !(role === 'ADMIN' && tempGrant)) {
+    throw new MockError('EC-40302', '仅管理员或辅导员可以重算完成标记', 403)
+  }
+
+  const refreshedAt = new Date().toISOString().slice(0, 19)
+  if (studentId) {
+    const status = completionStatus(studentId, academicYear, role, userId, tempGrant)
+    return {
+      academicYear,
+      trigger: 'MANUAL',
+      checkedStudents: status.createdSectionCount > 0 ? 1 : 0,
+      completedStudents: status.completed ? 1 : 0,
+      changedStudents: 0,
+      refreshedAt,
+    }
+  }
+
+  if (!(role === 'ADMIN' && tempGrant)) {
+    throw new MockError('EC-40302', '整学年重算仅管理员（持临时授权）可执行', 403)
+  }
+  const studentIds = new Set<number>()
+  for (const section of store.values()) {
+    if (section.academicYear === academicYear) {
+      studentIds.add(section.studentId)
+    }
+  }
+  let completedStudents = 0
+  for (const id of studentIds) {
+    const status = completionStatus(id, academicYear, role, userId, tempGrant)
+    if (status.completed) {
+      completedStudents += 1
+    }
+  }
+  return {
+    academicYear,
+    trigger: 'MANUAL',
+    checkedStudents: studentIds.size,
+    completedStudents,
+    changedStudents: 0,
+    refreshedAt,
+  }
 }
 
 /** 重置内存数据，供测试或热更新使用。 */

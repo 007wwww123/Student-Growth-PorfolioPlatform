@@ -286,3 +286,53 @@ export interface ArchiveResult {
   rejected: boolean
   students: ArchiveStudentResult[]
 }
+
+/**
+ * 单板块完成情况，对应后端 CompletionSectionVO。
+ *
+ * sectionCode 为小写（与 SectionCode 一致），未建档板块的 status 为空、statusLabel 为「未建档」。
+ */
+export interface CompletionSection {
+  sectionCode: SectionCode
+  sectionName?: string
+  status?: ProfileStatus
+  statusLabel?: string
+  /** 本学期是否算完成（已通过 / 已归档） */
+  completed: boolean
+}
+
+/**
+ * 完成标记，对应后端 CompletionStatusVO（BR-S10）。
+ *
+ * 标记是服务端派生值，前端不自行统计「几块通过了几块」，否则两边口径会漂。
+ */
+export interface CompletionStatus {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  academicYear: string
+  /** 六板块是否全部完成 */
+  completed: boolean
+  /** 已建档板块数 0–6 */
+  createdSectionCount: number
+  /** 已完成板块数 0–6 */
+  completedSectionCount: number
+  /** 未完成板块中文名，按板块顺序 */
+  pendingSections: string[]
+  /** 逐板块状态，固定六项 */
+  sections: CompletionSection[]
+}
+
+/** 完成标记重算结果，对应后端 CompletionRefreshVO。 */
+export interface CompletionRefreshResult {
+  academicYear: string
+  /** MANUAL 手动 / SCHEDULED 定时 / STATUS_CHANGE 状态流转触发 */
+  trigger?: string
+  checkedStudents: number
+  completedStudents: number
+  /** 标记发生翻转的学生数，重复重算应为 0 */
+  changedStudents: number
+  refreshedAt?: string
+}
