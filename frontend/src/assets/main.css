@@ -14,6 +14,15 @@
   --color-success-bg: #f0fdf4;
   --radius: 8px;
   --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 4px 12px rgb(15 23 42 / 4%);
+  /* 公共框架尺寸：顶部固定栏高度与左侧固定菜单宽度，内容区据此让位 */
+  --layout-topbar-height: 56px;
+  --layout-sidebar-width: 232px;
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --layout-sidebar-width: 208px;
+  }
 }
 
 * {
