@@ -1,0 +1,96 @@
+import type { UserRole } from './api/types'
+import { SECTIONS } from './sectionMeta'
+
+/**
+ * 公共菜单模型。
+ *
+ * <p>菜单按角色计算，不放在组件模板里写死：新增板块或调整角色可见范围只改这里，
+ * 侧边栏只负责渲染。菜单项的 {@code matchNames} 是「哪些路由命中后高亮」，
+ * 详情页（如审核详情）与列表页共用一个菜单项，避免详情页菜单全灭。</p>
+ */
+
+export type NavIconName =
+  | 'overview'
+  | 'profile'
+  | 'book'
+  | 'star'
+  | 'heart'
+  | 'briefcase'
+  | 'chat'
+  | 'review'
+
+export interface NavItem {
+  /** 稳定标识，仅用于 key */
+  key: string
+  label: string
+  icon: NavIconName
+  to: string
+  /** 命中即高亮的路由名 */
+  matchNames: string[]
+}
+
+export interface NavGroup {
+  key: string
+  /** 分组标题；为空时只渲染间距，不渲染文字 */
+  title?: string
+  items: NavItem[]
+}
+
+/** 板块与图标的对应关系，与 sectionMeta 的 code 一致。 */
+const SECTION_ICONS: Record<string, NavIconName> = {
+  basic: 'profile',
+  academic: 'book',
+  interest: 'star',
+  life: 'heart',
+  career: 'briefcase',
+  mentor: 'chat',
+}
+
+/** 六大板块，学生与教师/管理员共用同一份，顺序取自 sectionMeta。 */
+const SECTION_ITEMS: NavItem[] = SECTIONS.map((section) => ({
+  key: `section-${section.code}`,
+  label: section.name,
+  icon: SECTION_ICONS[section.code] ?? 'profile',
+  to: `/sections/${section.code}`,
+  matchNames: [`section-${section.code}`],
+}))
+
+/** 总览：教师/管理员的数据看板入口，当前先占位，后续接可视化。 */
+const OVERVIEW_ITEM: NavItem = {
+  key: 'overview',
+  label: '总览',
+  icon: 'overview',
+  to: '/',
+  matchNames: ['home'],
+}
+
+/** 审核工作台：仅有审核权限的角色可见（服务端仍会二次校验权限）。 */
+const REVIEW_ITEM: NavItem = {
+  key: 'review',
+  label: '审核工作台',
+  icon: 'review',
+  to: '/review',
+  matchNames: ['review-list', 'review-detail'],
+}
+
+/** 教师、管理员共用一类菜单：总览 + 六大模块 + 审核工作台。 */
+export function isStaff(role: UserRole | undefined): boolean {
+  return role === 'COU' || role === 'ADMIN'
+}
+
+/**
+ * 按角色返回左侧菜单分组。
+ *
+ * <p>学生只有六大板块；教师与管理员多「总览」（数据可视化入口）与审核工作台。
+ * 顶部栏不区分角色，因此不在这个模型里。</p>
+ */
+export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
+  if (isStaff(role)) {
+    return [
+      { key: 'overview', items: [OVERVIEW_ITEM] },
+      { key: 'sections', title: '档案模块', items: SECTION_ITEMS },
+      { key: 'review', title: '审核', items: [REVIEW_ITEM] },
+    ]
+  }
+  return [{ key: 'sections', title: '档案板块', items: SECTION_ITEMS }]
+}

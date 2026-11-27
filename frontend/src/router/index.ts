@@ -114,6 +114,14 @@ router.beforeEach((to) => {
       return { name: 'forbidden' }
     }
   }
+
+  /**
+   * 总览是教师/管理员的数据看板入口，学生侧边栏里没有这一项，
+   * 直接访问或登录后默认回跳时落到「基本信息」，避免停在无菜单高亮的页面上。
+   */
+  if (to.name === 'home' && getUser()?.role === 'STU') {
+    return { name: 'section-basic' }
+  }
   return true
 })
 
