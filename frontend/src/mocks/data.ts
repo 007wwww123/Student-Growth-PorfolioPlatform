@@ -11,9 +11,13 @@ import type {
   EnrollClass,
   EnrollStudentResult,
   FieldMeta,
+  FieldPermission,
+  PermissionMatrix,
+  PermissionSaveResult,
   ProfileStatus,
   ReviewTask,
   SectionCode,
+  SectionPermission,
   SectionProgress,
   SectionVO,
   UserRole,
@@ -67,9 +71,13 @@ interface MockFieldDef {
   name: string
   type: FieldMeta['fieldType']
   required: boolean
-  source: 'SIS' | 'SYS' | 'STU' | 'STU_CFM' | 'COU'
+  source: 'SIS' | 'SYS' | 'STU' | 'STU_CFM' | 'COU' | 'IMP'
   sensitive?: number
   editableRoles: UserRole[]
+  /** 初始化口径，管理员保存权限后仍保留，用于「已调整」与「恢复默认」 */
+  defaultEditableRoles?: UserRole[]
+  /** 可见角色，缺省为师生均可见；不可见的角色不允许被配置为可编辑 */
+  visibleRoles?: UserRole[]
   options?: Array<{ value: string; label: string }>
 }
 
@@ -211,43 +219,167 @@ const BASIC_FIELDS: MockFieldDef[] = [
   },
 ]
 
-/** 除基本信息外的板块只给骨架字段，够演示「六板块同一套页面」即可。 */
+/** 除基本信息外的板块字段，与 db/sql/11_seed_section_field_defs.sql 保持一致。 */
 const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
   academic: [
-    { key: 'goalShort', name: '短期目标', type: 'TEXT', required: true, source: 'STU', editableRoles: ['STU'] },
-    { key: 'goalLong', name: '长期目标', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'goalShort', name: '短期学业目标', type: 'TEXTAREA', required: true, source: 'STU', editableRoles: ['STU'] },
+    { key: 'goalLong', name: '长期发展目标', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
     { key: 'strongSubjects', name: '优势科目', type: 'MULTI_SELECT', required: false, source: 'STU', editableRoles: ['STU'] },
     { key: 'weakSubjects', name: '待提升科目', type: 'MULTI_SELECT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'abilityNote', name: '能力自评', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'rankMatrix', name: '成绩轨迹', type: 'RANK_MATRIX', required: false, source: 'IMP', editableRoles: [] },
+    { key: 'abilityNote', name: '学科能力认定', type: 'TEXTAREA', required: false, source: 'COU', editableRoles: ['COU'] },
+    { key: 'certificates', name: '证书技能', type: 'RANK_MATRIX', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'events', name: '竞赛科研记录', type: 'RANK_MATRIX', required: false, source: 'STU', editableRoles: ['STU'] },
   ],
   interest: [
-    { key: 'hobbies', name: '兴趣标签', type: 'MULTI_SELECT', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'hobbies', name: '兴趣爱好', type: 'MULTI_SELECT', required: true, source: 'STU', editableRoles: ['STU'] },
     { key: 'hobbyDesc', name: '兴趣描述', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'skills', name: '特长技能', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'ideal', name: '理想状态', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'skills', name: '技能特长', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'ideal', name: '理想描述', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
   ],
   life: [
-    { key: 'orgRole', name: '组织职务', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'orgLevel', name: '组织层级', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'sleepHabit', name: '作息习惯', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'exerciseFreq', name: '运动频率', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'stressScore', name: '压力指数', type: 'NUMBER', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'mood', name: '近期心情', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'orgRole', name: '社团/学生工作职务', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
+    {
+      key: 'orgLevel',
+      name: '参与度',
+      type: 'SELECT',
+      required: false,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '高', label: '高' },
+        { value: '中', label: '中' },
+        { value: '低', label: '低' },
+      ],
+    },
+    {
+      key: 'sleepHabit',
+      name: '作息习惯',
+      type: 'SELECT',
+      required: false,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '早睡早起', label: '早睡早起' },
+        { value: '规律', label: '规律' },
+        { value: '晚睡', label: '晚睡' },
+      ],
+    },
+    {
+      key: 'exerciseFreq',
+      name: '运动频率',
+      type: 'SELECT',
+      required: false,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '不运动', label: '不运动' },
+        { value: '每周1-2次', label: '每周 1–2 次' },
+        { value: '每周3-4次', label: '每周 3–4 次' },
+        { value: '每周5次以上', label: '每周 5 次以上' },
+      ],
+    },
+    { key: 'personality', name: '个性描述', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    {
+      key: 'econSelf',
+      name: '经济状况自评',
+      type: 'SELECT',
+      required: false,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '良好', label: '良好' },
+        { value: '一般', label: '一般' },
+        { value: '紧张', label: '紧张' },
+      ],
+    },
+    { key: 'aidSource', name: '资助来源', type: 'MULTI_SELECT', required: false, source: 'COU', editableRoles: ['COU'] },
+    { key: 'stressScore', name: '压力自评', type: 'NUMBER', required: true, source: 'STU', editableRoles: ['STU'] },
+    { key: 'stressSource', name: '压力来源', type: 'MULTI_SELECT', required: false, source: 'STU', editableRoles: ['STU'] },
+    {
+      key: 'mood',
+      name: '整体情绪',
+      type: 'SELECT',
+      required: true,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '良好', label: '良好' },
+        { value: '一般', label: '一般' },
+        { value: '低落', label: '低落' },
+      ],
+    },
+    { key: 'majorEvent', name: '重大事件备忘', type: 'TEXTAREA', required: false, source: 'COU', editableRoles: ['COU'] },
+    { key: 'careFlag', name: '关注标记', type: 'CHECKBOX', required: false, source: 'SYS', editableRoles: [] },
   ],
   career: [
-    { key: 'intention', name: '就业意向', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'industry', name: '目标行业', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'position', name: '目标岗位', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'plan', name: '实施计划', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
-    { key: 'support', name: '需要支持', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    {
+      key: 'intention',
+      name: '发展意向',
+      type: 'SELECT',
+      required: true,
+      source: 'STU',
+      editableRoles: ['STU'],
+      options: [
+        { value: '就业', label: '就业' },
+        { value: '考研', label: '考研' },
+        { value: '留学', label: '留学' },
+        { value: '创业', label: '创业' },
+        { value: '未定', label: '未定' },
+      ],
+    },
+    { key: 'industry', name: '心仪行业', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'position', name: '心仪岗位', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'plan', name: '已做准备', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'support', name: '所需支持', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
   ],
   mentor: [
-    { key: 'talkDate', name: '谈话日期', type: 'DATE', required: false, source: 'COU', editableRoles: ['COU'] },
-    { key: 'topic', name: '谈话主题', type: 'TEXT', required: false, source: 'COU', editableRoles: ['COU'] },
-    { key: 'advice', name: '导师建议', type: 'TEXTAREA', required: false, source: 'COU', editableRoles: ['COU'] },
-    { key: 'starLevel', name: '星级评分', type: 'NUMBER', required: false, source: 'COU', editableRoles: ['COU'] },
-    { key: 'feedback', name: '学生反馈', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    { key: 'talkDate', name: '谈话日期', type: 'DATE', required: true, source: 'COU', editableRoles: ['COU'] },
+    {
+      key: 'topic',
+      name: '谈话主题',
+      type: 'SELECT',
+      required: true,
+      source: 'COU',
+      editableRoles: ['COU'],
+      options: [
+        { value: '学业规划', label: '学业规划' },
+        { value: '就业指导', label: '就业指导' },
+        { value: '心理疏导', label: '心理疏导' },
+        { value: '日常交流', label: '日常交流' },
+      ],
+    },
+    { key: 'advice', name: '建议与寄语', type: 'TEXTAREA', required: true, source: 'COU', editableRoles: ['COU'] },
+    {
+      key: 'starLevel',
+      name: '重要标记',
+      type: 'RADIO',
+      required: false,
+      source: 'COU',
+      editableRoles: ['COU'],
+      options: [
+        { value: '0', label: '无' },
+        { value: '1', label: '★' },
+        { value: '2', label: '★★' },
+      ],
+    },
+    { key: 'feedback', name: '学生反馈与承诺', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
+    // 内部备注学生端不返回，因此只能配置「老师可编辑」
+    {
+      key: 'internalRemark',
+      name: '内部备注',
+      type: 'TEXTAREA',
+      required: false,
+      source: 'COU',
+      editableRoles: ['COU'],
+      visibleRoles: ['COU'],
+    },
   ],
+}
+
+// 初始化口径快照：管理员改过权限后，仍能标识「已调整」并支持「恢复默认」
+for (const def of [...BASIC_FIELDS, ...Object.values(SIMPLE_FIELDS).flat()]) {
+  def.defaultEditableRoles = [...def.editableRoles]
 }
 
 function defsOf(code: SectionCode): MockFieldDef[] {
@@ -516,10 +648,157 @@ function completeOf(section: MockSection): number {
 }
 
 function canEdit(def: MockFieldDef, role: UserRole, status: ProfileStatus): boolean {
+  if (role === 'ADMIN') {
+    // 管理员只配置权限，不参与内容编辑
+    return false
+  }
   if (status !== 'DRAFT' && status !== 'RETURNED') {
     return false
   }
+  // 可见性与可编辑性同口径：看不见的字段不允许写
+  if (!(def.visibleRoles ?? ['STU', 'COU']).includes(role)) {
+    return false
+  }
   return def.editableRoles.includes(role)
+}
+
+// ---------------------------------------------------------------------------
+// 字段编辑权限配置（管理员模式）
+// ---------------------------------------------------------------------------
+
+function lockedReasonOf(def: MockFieldDef): string | null {
+  if (def.key === 'majorId') {
+    return '该字段由系统按班级自动推导，固定只读'
+  }
+  if (def.key === 'studentNo') {
+    return '学号是学籍唯一标识，创建后不可修改'
+  }
+  if (def.source === 'SYS') {
+    return '该字段由系统生成，固定只读'
+  }
+  return null
+}
+
+function permissionModeOf(roles: UserRole[]): 'NONE' | 'STU' | 'COU' | 'BOTH' {
+  const student = roles.includes('STU')
+  const counselor = roles.includes('COU')
+  if (student && counselor) return 'BOTH'
+  if (student) return 'STU'
+  if (counselor) return 'COU'
+  return 'NONE'
+}
+
+function sameRoles(left: UserRole[], right: UserRole[]): boolean {
+  return left.length === right.length && left.every((role) => right.includes(role))
+}
+
+/** 角色是否可见该字段：看不见却可写会出现「能写但看不到」，必须前后端同口径拦住。 */
+function roleVisibleOf(def: MockFieldDef, role: UserRole): boolean {
+  return (def.visibleRoles ?? ['STU', 'COU']).includes(role)
+}
+
+function fieldPermissionOf(def: MockFieldDef): FieldPermission {
+  const roles = [...def.editableRoles]
+  const defaults = [...(def.defaultEditableRoles ?? def.editableRoles)]
+  const lockedReason = lockedReasonOf(def)
+  return {
+    fieldCode: def.key,
+    fieldName: def.name,
+    fieldType: def.type,
+    source: def.source,
+    required: def.required,
+    sensitive: def.sensitive ?? 0,
+    editableRoles: roles.filter((role): role is 'STU' | 'COU' => role !== 'ADMIN'),
+    defaultEditableRoles: defaults.filter((role): role is 'STU' | 'COU' => role !== 'ADMIN'),
+    permissionMode: permissionModeOf(roles),
+    customized: !sameRoles(roles, defaults),
+    studentVisible: roleVisibleOf(def, 'STU'),
+    counselorVisible: roleVisibleOf(def, 'COU'),
+    locked: lockedReason != null,
+    lockedReason: lockedReason ?? undefined,
+  }
+}
+
+function sectionPermissionOf(code: SectionCode): SectionPermission {
+  const fields = defsOf(code).map((def) => ({
+    ...fieldPermissionOf(def),
+    fieldCode: `${code}.${def.key}`,
+  }))
+  return {
+    sectionCode: code.toUpperCase(),
+    sectionName: SECTION_NAMES[code],
+    fields,
+    studentEditable: fields.filter((field) => field.editableRoles.includes('STU')).length,
+    counselorEditable: fields.filter((field) => field.editableRoles.includes('COU')).length,
+    readonly: fields.filter((field) => field.editableRoles.length === 0).length,
+    customized: fields.filter((field) => field.customized).length,
+  }
+}
+
+function requireAdmin(role: UserRole): void {
+  if (role !== 'ADMIN') {
+    throw new MockError('EC-40303', '仅管理员可以配置字段编辑权限', 403)
+  }
+}
+
+export function permissionMatrix(role: UserRole): PermissionMatrix {
+  requireAdmin(role)
+  return { sections: ALL_SECTIONS.map((code) => sectionPermissionOf(code)) }
+}
+
+export function savePermissions(
+  code: SectionCode,
+  items: Array<{ fieldCode: string; editableRoles: string[] }>,
+  role: UserRole,
+): PermissionSaveResult {
+  requireAdmin(role)
+  const defs = defsOf(code)
+  let changed = 0
+  for (const item of items) {
+    const def = defs.find((candidate) => `${code}.${candidate.key}` === item.fieldCode)
+    if (!def) {
+      throw new MockError('EC-40003', `字段「${item.fieldCode}」不属于板块「${SECTION_NAMES[code]}」`, 400)
+    }
+    const roles: UserRole[] = []
+    for (const raw of item.editableRoles ?? []) {
+      const value = String(raw).trim().toUpperCase()
+      if (value === 'ADMIN') {
+        throw new MockError('EC-40003', '管理员只负责配置权限，不能作为内容编辑角色', 400)
+      }
+      if (value !== 'STU' && value !== 'COU') {
+        throw new MockError('EC-40003', '可编辑角色只能是 STU（学生）或 COU（老师）', 400)
+      }
+      if (!roleVisibleOf(def, value)) {
+        const label = value === 'STU' ? '学生' : '老师'
+        throw new MockError('EC-40003', `字段「${def.name}」对${label}不可见，不能配置为可编辑`, 400)
+      }
+      if (!roles.includes(value)) {
+        roles.push(value)
+      }
+    }
+    const lockedReason = lockedReasonOf(def)
+    if (lockedReason != null && roles.length > 0) {
+      throw new MockError('EC-40003', `字段「${def.name}」不可配置：${lockedReason}`, 400)
+    }
+    if (!sameRoles(roles, def.editableRoles)) {
+      def.editableRoles = roles
+      changed++
+    }
+  }
+  return { changed, section: sectionPermissionOf(code) }
+}
+
+export function resetPermissions(code: SectionCode, role: UserRole): PermissionSaveResult {
+  requireAdmin(role)
+  let changed = 0
+  for (const def of defsOf(code)) {
+    const defaults = [...(def.defaultEditableRoles ?? def.editableRoles)]
+    if (!sameRoles(defaults, def.editableRoles)) {
+      def.editableRoles = defaults
+      changed++
+    }
+  }
+  return { changed, section: sectionPermissionOf(code) }
 }
 
 function fieldMetaOf(section: MockSection, role: UserRole): FieldMeta[] {
@@ -583,6 +862,9 @@ export function saveSection(
   payload: Record<string, unknown>,
   role: UserRole = 'STU',
 ): SectionVO {
+  if (role === 'ADMIN') {
+    throw new MockError('EC-40303', '管理员只负责配置字段权限，不能修改档案内容', 403)
+  }
   ensureSeed()
   const section = getRaw(code, studentId, academicYear)
   if (section.status !== 'DRAFT' && section.status !== 'RETURNED') {
@@ -619,6 +901,9 @@ export function submitSection(
   academicYear: string,
   role: UserRole = 'STU',
 ): SectionVO {
+  if (role === 'ADMIN') {
+    throw new MockError('EC-40303', '管理员只负责配置字段权限，不能修改档案内容', 403)
+  }
   ensureSeed()
   const section = getRaw(code, studentId, academicYear)
   if (section.status !== 'DRAFT' && section.status !== 'RETURNED') {

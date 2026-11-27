@@ -160,6 +160,49 @@ class BasicSectionServiceTest {
     }
 
     @Test
+    @DisplayName("保存：管理员只能配置字段权限，内容写接口返回 EC-40303")
+    void saveRejectsAdminContentEdit() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.ADMIN, true));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.save(STUDENT_ID, dto(Map.of("name", "林清和"))));
+
+        assertEquals(ResultCode.PERMISSION_DENIED, ex.getResultCode());
+        verify(fieldDefService, never()).listActive(anyString());
+    }
+
+    @Test
+    @DisplayName("保存：姓名配置为仅老师后，学生保存被拒（EC-40301）")
+    void saveHonorsTeacherOnlyPermission() {
+        ArcFieldDef name = nameDef();
+        name.setEditableRoles("COU");
+        when(fieldDefService.listActive(BasicConstants.SECTION_CODE)).thenReturn(List.of(name));
+        when(profileMapper.selectOne(any())).thenReturn(profile(ProfileStatusEnum.DRAFT));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> service.save(STUDENT_ID, dto(Map.of("name", "林清和"))));
+
+        assertEquals(ResultCode.FIELD_NOT_EDITABLE, ex.getResultCode());
+        verify(itemMapper, never()).insert(any(ArcProfileItem.class));
+    }
+
+    @Test
+    @DisplayName("保存：姓名配置为仅老师后，辅导员可以保存")
+    void saveAllowsCounselorWhenConfigured() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
+        ArcFieldDef name = nameDef();
+        name.setEditableRoles("COU");
+        when(fieldDefService.listActive(BasicConstants.SECTION_CODE)).thenReturn(List.of(name));
+        when(profileMapper.selectOne(any())).thenReturn(profile(ProfileStatusEnum.DRAFT));
+        when(itemMapper.selectList(any())).thenReturn(List.of());
+        when(profileMapper.updateById(any(ArcProfile.class))).thenReturn(1);
+
+        service.save(STUDENT_ID, dto(Map.of("name", "林清和")));
+
+        verify(itemMapper).insert(any(ArcProfileItem.class));
+    }
+
+    @Test
     @DisplayName("保存：越权改学校维护字段返回 403 并带字段明细")
     void saveRejectsSchoolMaintainedField() {
         when(fieldDefService.listActive(BasicConstants.SECTION_CODE)).thenReturn(List.of(studentNoDef()));

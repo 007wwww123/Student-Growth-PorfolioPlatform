@@ -90,6 +90,13 @@ const router = createRouter({
       meta: { title: '毕业归档', roles: ['COU'] },
     },
     {
+      path: '/admin/permissions',
+      name: 'admin-permissions',
+      component: () => import('@/views/admin/PermissionView.vue'),
+      // 管理员专属：只配置字段编辑权限，不接触档案内容
+      meta: { title: '字段权限配置', roles: ['ADMIN'] },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),

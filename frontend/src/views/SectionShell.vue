@@ -21,6 +21,8 @@ const props = defineProps<{ code: SectionCode }>()
 const meta = computed(() => SECTION_MAP[props.code])
 const section = ref<SectionVO | null>(null)
 const form = ref<Record<string, string>>({})
+/** 载入时的表单快照：用于识别「脱敏值没改过」，避免把 138****1234 当成新值提交。 */
+const initialForm = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
@@ -33,7 +35,14 @@ const notice = ref('')
 const user = getUser()
 const studentId = computed(() => user?.studentId ?? DEMO_STUDENT_ID)
 
-const editable = computed(() => section.value?.editable ?? true)
+/**
+ * 管理员只配置字段权限，不编辑档案内容。
+ *
+ * <p>后端保存接口对 ADMIN 统一返回 EC-40303，这里再截一层，避免管理员点了保存才发现
+ * 没有权限；强制只读也保证即使某个字段的 editable 位被误配为 true，也不会在管理端出现输入框。</p>
+ */
+const isAdmin = computed(() => user?.role === 'ADMIN')
+const editable = computed(() => (section.value?.editable ?? true) && !isAdmin.value)
 const statusLabel = computed(() =>
   section.value ? (STATUS_LABELS[section.value.status] ?? section.value.status) : '',
 )
@@ -100,6 +109,7 @@ async function load(): Promise<void> {
     const data = await fetchSection(props.code, studentId.value, DEMO_ACADEMIC_YEAR)
     section.value = data
     form.value = formFromFields(data.fields, renderFieldsOf(data.fieldMeta))
+    initialForm.value = { ...form.value }
   } catch (e) {
     section.value = null
     error.value = isApiError(e) ? e : null
@@ -123,6 +133,11 @@ function buildPayload(): Record<string, unknown> | null {
       continue
     }
     const raw = (form.value[field.key] ?? '').trim()
+    // 脱敏字段（手机、身份证）载入时展示的是掩码值；没改过就代表「保持原值」，
+    // 不能把 138****1234 当新值提交，否则会被格式校验拦下或写坏数据。
+    if (field.masked === true && raw === (initialForm.value[field.key] ?? '').trim()) {
+      continue
+    }
     if (field.type === 'tags') {
       values[field.key] = raw === ''
         ? null
@@ -229,6 +244,15 @@ watch(() => props.code, load, { immediate: true })
       </div>
     </header>
 
+    <!-- 管理员模式：只读查看 + 跳转权限配置，不允许借板块页改内容 -->
+    <div v-if="isAdmin" class="alert alert--admin">
+      <strong>管理员只读</strong>
+      <span>
+        管理员只负责配置字段编辑权限，不能修改板块内容。需要调整「谁能改哪个字段」请前往
+        <RouterLink to="/admin/permissions">字段权限配置</RouterLink>。
+      </span>
+    </div>
+
     <!-- 退回理由（BR-S04）：学生必须能看到被退回的原因，不能只给一个「已退回」标签 -->
     <div v-if="returnNote" class="alert alert--return">
       <div class="alert__head">
@@ -266,7 +290,7 @@ watch(() => props.code, load, { immediate: true })
       <PendingHint :items="pendingItems" />
 
       <form class="board__form" @submit.prevent="onSave">
-        <FieldList :fields="fields" :form="form" :errors="fieldHints" />
+        <FieldList :fields="fields" :form="form" :errors="fieldHints" :readonly="isAdmin" />
 
         <div class="board__actions">
           <!-- 可编辑：草稿 / 已退回 -->
@@ -369,6 +393,20 @@ watch(() => props.code, load, { immediate: true })
   border: 1px solid #fed7aa;
   background: #fff7ed;
   color: #9a3412;
+}
+
+.alert--admin {
+  display: flex;
+  gap: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.alert--admin a {
+  color: #1d4ed8;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 .alert__reason {

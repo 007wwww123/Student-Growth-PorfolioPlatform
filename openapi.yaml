@@ -81,6 +81,8 @@ info:
     | `EC-40105` | 401 | 账号被停用 | 提示联系管理员 |
     | `EC-40301` | 403 | 字段由学校维护，不可修改 | 置灰该字段 |
     | `EC-40302` | 403 | 无权访问该学生档案 | 提示无权限 |
+    | `EC-40303` | 403 | 当前角色无权执行该操作（如非管理员配置权限、管理员编辑档案内容） | 提示无权限 |
+    | `EC-40303` | 403 | 当前角色无权执行该操作（如非管理员配置权限、管理员编辑档案内容） | 提示无权限 |
     | `EC-40902` | 409 | 当前状态不允许该操作 | 刷新详情后重试 |
     | `EC-40903` | 409 | 撤回次数已用完 | 提示不可撤回 |
     | `EC-40907` | 409 | 内容已被他人修改（乐观锁冲突） | 提示刷新后重试 |
@@ -158,6 +160,8 @@ tags:
     description: 导师谈话记录与建议，板块编码 `mentor`，字段前缀 `mentor.`；学生只读
   - name: 平台公共
     description: 统一响应结构与错误码
+  - name: 管理员
+    description: 管理员模式：按板块配置字段编辑权限；只配置权限，不修改档案内容
 
 security:
   - bearerAuth: []
@@ -1069,6 +1073,128 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/permissions:
+    get:
+      tags: [管理员]
+      operationId: getFieldPermissionMatrix
+      summary: 读取六大板块字段权限矩阵
+      description: |
+        管理员模式的权限配置入口：返回六个板块全部启用字段的当前可编辑角色、
+        初始化默认值、是否固定只读，以及按角色统计的可编辑字段数。
+
+        本接口只读 `arc_field_def`，不读取任何学生档案内容——配置权限的过程不应接触业务数据。
+        仅 `ADMIN` 可调用，学生与辅导员返回 `EC-40303`。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PermissionMatrixVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/permissions/{sectionCode}:
+    put:
+      tags: [管理员]
+      operationId: saveFieldPermissions
+      summary: 保存某板块的字段编辑权限
+      description: |
+        按板块整批保存，一次事务内要么全部生效、要么全部不生效。写入
+        `arc_field_def.editable_roles` 后立即生效：六个板块的详情接口按同一列计算
+        `editable`，保存接口按同一列做越权校验（`EC-40301`），不需要刷新缓存。
+
+        约束：
+        1. 仅 `ADMIN` 可调用，其他角色返回 `EC-40303`；
+        2. 可编辑角色只能是 `STU` / `COU`，传 `ADMIN` 返回 `EC-40003`——管理员只配置权限，不编辑内容；
+        3. 系统推导（`majorId`）、系统生成（`source=SYS`）与学号等固定只读字段不允许配置；
+        4. 字段对该角色不可见（如仅辅导员可见的 `mentor.internalRemark`）时，不允许配成该角色可编辑，返回 `EC-40003`；
+        5. 只对发生变化的字段写库并记审计，未变化的字段不产生日志。
+      parameters:
+        - name: sectionCode
+          in: path
+          required: true
+          description: 板块编码，大小写均可
+          schema:
+            type: string
+            enum: [basic, academic, interest, life, career, mentor]
+            example: basic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionSaveDTO'
+      responses:
+        '200':
+          description: 保存成功，返回实际变更数与保存后的板块快照
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PermissionSaveResultVO'
+        '400':
+          description: 参数非法，`code` 为 `EC-40002` / `EC-40003`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/permissions/{sectionCode}/reset:
+    post:
+      tags: [管理员]
+      operationId: resetFieldPermissions
+      summary: 恢复某板块的默认字段编辑权限
+      description: |
+        把该板块全部字段的可编辑角色恢复为初始化口径（`default_editable_roles`）。
+        与保存接口一样仅 `ADMIN` 可调用；恢复后立即生效，并按字段写 `RESET` 审计。
+      parameters:
+        - name: sectionCode
+          in: path
+          required: true
+          description: 板块编码，大小写均可
+          schema:
+            type: string
+            enum: [basic, academic, interest, life, career, mentor]
+            example: basic
+      responses:
+        '200':
+          description: 恢复成功，返回实际变更数与恢复后的板块快照
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PermissionSaveResultVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1126,7 +1252,7 @@ components:
           schema:
             $ref: '#/components/schemas/VoidResponse'
     Forbidden:
-      description: 无权限，`code` 为 `EC-40301` / `EC-40302`
+      description: 无权限，`code` 为 `EC-40301` / `EC-40302` / `EC-40303` / `EC-40303`
       content:
         application/json:
           schema:
@@ -2248,3 +2374,138 @@ components:
           description: 班级完成率，按班级名排序；单班筛选时只有一条
           items:
             $ref: '#/components/schemas/ClassProgressVO'
+
+    PermissionMatrixVO:
+      type: object
+      description: 六大板块的字段权限矩阵，顺序与需求文档 4.2–4.7 一致
+      properties:
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectionPermissionVO'
+
+    SectionPermissionVO:
+      type: object
+      description: 一个板块的字段权限清单与统计
+      properties:
+        sectionCode:
+          type: string
+          description: 板块编码，大写
+          example: BASIC
+        sectionName:
+          type: string
+          example: 基本信息
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldPermissionVO'
+        studentEditable:
+          type: integer
+          description: 当前配置下学生可编辑的字段数
+          example: 5
+        counselorEditable:
+          type: integer
+          description: 当前配置下老师可编辑的字段数
+          example: 8
+        readonly:
+          type: integer
+          description: 任何角色都不可编辑的字段数
+          example: 8
+        customized:
+          type: integer
+          description: 已偏离默认配置的字段数
+          example: 0
+
+    FieldPermissionVO:
+      type: object
+      description: 单个字段的编辑权限
+      properties:
+        fieldCode:
+          type: string
+          example: basic.name
+        fieldName:
+          type: string
+          example: 姓名
+        fieldType:
+          type: string
+          example: TEXT
+        source:
+          type: string
+          description: SIS / COU / STU / STU_CFM / SYS / IMP
+          example: SIS
+        required:
+          type: boolean
+        sensitive:
+          type: integer
+          description: 0 普通 / 1 脱敏 / 2 仅辅导员明文
+          example: 0
+        editableRoles:
+          type: array
+          description: 当前生效的可编辑角色，按 STU、COU 固定顺序
+          items:
+            type: string
+            enum: [STU, COU]
+        defaultEditableRoles:
+          type: array
+          description: 初始化时的默认可编辑角色
+          items:
+            type: string
+            enum: [STU, COU]
+        permissionMode:
+          type: string
+          description: 四选一权限模式
+          enum: [NONE, STU, COU, BOTH]
+          example: NONE
+        customized:
+          type: boolean
+          description: 当前配置是否已偏离默认值
+        studentVisible:
+          type: boolean
+          description: 学生是否可见该字段；不可见时不允许配置为「学生可编辑」（EC-40003）
+          example: true
+        counselorVisible:
+          type: boolean
+          description: 老师是否可见该字段；不可见时不允许配置为「老师可编辑」（EC-40003）
+          example: true
+        locked:
+          type: boolean
+          description: 固定只读（系统推导、系统生成、学籍唯一标识），不允许配置
+        lockedReason:
+          type: string
+          nullable: true
+          example: 该字段由系统按班级自动推导，固定只读
+
+    PermissionSaveDTO:
+      type: object
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FieldPermissionDTO'
+
+    FieldPermissionDTO:
+      type: object
+      required: [fieldCode]
+      properties:
+        fieldCode:
+          type: string
+          example: basic.name
+        editableRoles:
+          type: array
+          description: 只能包含 STU / COU；空数组表示任何角色都不可编辑
+          items:
+            type: string
+            enum: [STU, COU]
+          example: [STU]
+
+    PermissionSaveResultVO:
+      type: object
+      properties:
+        changed:
+          type: integer
+          description: 实际更新的字段数；未变化的字段不计入审计
+          example: 1
+        section:
+          $ref: '#/components/schemas/SectionPermissionVO'

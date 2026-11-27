@@ -39,11 +39,20 @@ public class AuditLogService {
     /** 业务类型：完成标记重算（BR-S10 派生数据维护）。 */
     public static final String BIZ_COMPLETION = "COMPLETION";
 
+    /** 业务类型：字段编辑权限配置（管理员模式）。 */
+    public static final String BIZ_PERMISSION_CONFIG = "PERMISSION_CONFIG";
+
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
 
+    /** 动作：恢复字段默认权限。 */
+    public static final String ACTION_RESET = "RESET";
+
     /** 目标类型：板块实例。 */
     public static final String TARGET_PROFILE = "PROFILE";
+
+    /** 目标类型：字段定义（权限配置的作用对象）。 */
+    public static final String TARGET_FIELD_DEF = "FIELD_DEF";
 
     private final SysAuditLogMapper auditLogMapper;
 

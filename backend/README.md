@@ -68,7 +68,7 @@ backend/
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 09 顺序执行
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 11 顺序执行
 │   │       └── mapper/
 │   │           ├── review/                       # 待审列表 SQL
 │   │           └── dashboard/                     # 看板聚合 SQL（两条分组查询）
@@ -220,7 +220,7 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 |---|---|---|
 | GET | `/api/dashboard/overview?academicYear=&classCode=` | 本学年进度聚合：学生数、完成数、待审量、六板块状态分布、班级完成率 |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用；看板 1 个接口可用**；
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用；看板 1 个接口可用；字段权限配置 3 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -303,6 +303,28 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 4. **口径为「本学年已建档」**：未建档学生没有行，不计入分母；学籍在册口径属于另一件事，不在首页混算。
 5. **只读、无事务**：不写表、不触发任何派生数据变更，因此方法上不加 `@Transactional`。
 
+### 字段权限配置模块（`com.college.growth.permission`）
+
+| 类 | 职责 |
+|---|---|
+| `FieldPermissionService` | 管理员专属：读取六板块权限矩阵、按板块整批保存、恢复默认 |
+| `FieldPermissionController` | `/api/admin/permissions` 三个接口：GET 矩阵、PUT 保存、POST 恢复默认 |
+
+口径要点：
+
+1. **只写一列**：配置结果落在 `arc_field_def.editable_roles`，六个板块的详情与保存都读同一列，
+   因此保存即生效，不需要缓存失效或重启；`default_editable_roles` 只存初始化口径，用于「已调整」标识与恢复默认。
+2. **管理员不编辑内容**：`ADMIN` 永远不能写入可编辑角色（传 `ADMIN` 返回 `EC-40003`）；
+   板块保存/提交对管理员直接返回 `EC-40303`，即使字段被误配也不会放行。
+3. **固定只读字段不可放开**：`validator=DERIVED`（专业由班级推导）、`source=SYS`（系统生成）、
+   `basic.studentNo`（学籍唯一标识）三类字段在矩阵中标记 `locked`，提交非空角色返回 `EC-40003`。
+4. **只写差异 + 全量审计**：一次保存只更新发生变化的字段，每个字段写一条 `PERMISSION_CONFIG` 审计，
+   detail 记录「原角色 → 新角色」，不记录任何学生档案内容。
+5. **可见性与可编辑性同口径**：字段对该角色不可见（如仅辅导员可见的 `mentor.internalRemark`）
+   不允许配成该角色可编辑，返回 `EC-40003`；板块保存侧也按「可见 且 可编辑」判定，
+   避免出现「能写但列表里看不到」的脏写。
+6. **覆盖六板块的字段来源**：`03` 写入板块一 16 个字段，`11` 补齐板块二至六共 35 个字段，六板块合计 51 个主表字段。
+
 ### 登录鉴权模块（`com.college.growth.auth`）
 
 | 方法 | 路径 | 说明 |
@@ -332,11 +354,11 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 | 登录名 | 角色 | 说明 |
 |---|---|---|
-| `2023010101` | STU | 学生，关联 `studentId=1001` |
-| `2023010102` / `2023010201` | STU | 另两个班的学生 |
-| `9001` / `9002` | COU | 辅导员，各带一个班 |
-| `9003` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
-| `9004` | ADMIN | 无授权，用于验证 `EC-40302` |
+| `2024010101` | STU | 李明，关联 `studentId=1001` |
+| `2024010102` / `2024010201` / `2024010301` | STU | 王芳 / 陈晨 / 赵敏，分别关联 1002–1004 |
+| `cou9001` / `cou9002` | COU | 辅导员，分别带软件 2401/2402 与电子 2401 |
+| `admin` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
+| `admin0` | ADMIN | 无授权，用于验证 `EC-40302`；权限配置不要求临时授权 |
 
 令牌默认 8 小时有效，可通过 `JWT_TTL_HOURS` 调整；签名密钥取 `JWT_SECRET`，**生产必须覆盖**，
 `application.yml` 里的默认值仅供本地联调。密码摘要算法与迭代次数变更后老账号需重置密码（无平滑迁移）。
@@ -391,7 +413,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，九个文件按文件名前缀数字 **01 → 09** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，十一个文件按文件名前缀数字 **01 → 11** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -412,16 +434,22 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/08_create_user_table.sql
 # 09 账号种子（7 个演示账号 + 1 个无授权管理员，密码统一 Passw0rd!）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/09_insert_user_seed.sql
+# 10 字段权限：增加 default_editable_roles（默认口径），并从 editable_roles 回填
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/10_add_field_permission_columns.sql
+# 11 板块二至六共 35 个字段定义（权限配置覆盖六大板块的前提）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/11_seed_section_field_defs.sql
 
-# 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4、users=8
+# 自检：板块一应为 16 字段 / 8 必填、SIS 映射 7；六板块合计 51；students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
-  "select count(*) total, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where section_code='BASIC';
+  "select section_code, count(*) fields, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where status=1 group by section_code;
    select count(*) students from stu_student;
    select count(*) users from sys_user;"
 ```
 
 > **存量库升级**：老库没有 `arc_field_def.source_field` 列，先跑 `05`（先 ALTER 再回填，可重复执行），
 > 再跑 `06`/`07`。`03` 不涉及这一列，无需重跑；`01` 只对全新库生效（`CREATE TABLE IF NOT EXISTS`）。
+> 权限配置上线后，`03`/`11` 重跑只更新字段元数据，**不会覆盖** `editable_roles`，避免把管理员配置改回默认；
+> 新增列 `default_editable_roles` 必须先执行 `10`，`11` 依赖该列。
 
 > 学生主数据的值与档案的关系：`stu_student` 是权威副本，`StudentSyncService` 在**建档、保存、提交**时
 > 把 SIS 字段物化进 `arc_profile_item`（只补空值，不覆盖已有值）。学工系统改正数据后用
@@ -431,7 +459,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 09` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 11` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 

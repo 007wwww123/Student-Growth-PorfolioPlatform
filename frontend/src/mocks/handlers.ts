@@ -15,9 +15,12 @@ import {
   listEnrollClasses,
   listTasks,
   loginUser,
+  permissionMatrix,
   refreshCompletion,
   rejectSection,
+  resetPermissions,
   revealValue,
+  savePermissions,
   roleLabelOf,
   saveSection,
   submitSection,
@@ -168,6 +171,47 @@ export const handlers = [
   ),
 
   http.post(`${API_BASE_PATH}/auth/logout`, ({ request }) => withAuth(request, () => ok())),
+
+  // ------------------------------------------------------------------
+  // 管理员 · 字段权限配置（只读写字段定义，不接触学生档案）
+  // ------------------------------------------------------------------
+  http.get(`${API_BASE_PATH}/admin/permissions`, ({ request }) =>
+    withAuth(request, (who) => ok(permissionMatrix(who.role))),
+  ),
+
+  http.put(`${API_BASE_PATH}/admin/permissions/:sectionCode`, async ({ params, request }) => {
+    const code = parseCode(params.sectionCode as string)
+    if (!code) {
+      return fail('EC-40003', '板块编码不在允许范围内', 400)
+    }
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    const fields = body.fields
+    if (!Array.isArray(fields) || fields.length === 0) {
+      return fail('EC-40002', '至少需要提交一个字段', 400)
+    }
+    return withAuth(request, (who) =>
+      ok(
+        savePermissions(
+          code,
+          fields as Array<{ fieldCode: string; editableRoles: string[] }>,
+          who.role,
+        ),
+      ),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/admin/permissions/:sectionCode/reset`, ({ params, request }) => {
+    const code = parseCode(params.sectionCode as string)
+    if (!code) {
+      return fail('EC-40003', '板块编码不在允许范围内', 400)
+    }
+    return withAuth(request, (who) => ok(resetPermissions(code, who.role)))
+  }),
 
   http.get(`${API_BASE_PATH}/sections/:code/:studentId`, ({ params, request }) => {
     const code = parseCode(params.code as string)
