@@ -1025,6 +1025,50 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /dashboard/overview:
+    get:
+      tags: [总览]
+      operationId: getDashboardOverview
+      summary: 首页进度聚合
+      description: |
+        一个请求返回首页所需的全部数字：建档学生数、六板块完成数、待审核量、
+        六板块状态分布与班级完成率。前端不要再用分项自己推导总数，否则两端口径会漂。
+
+        口径为「本学年已建档」：未建档学生没有 `arc_profile` 记录，不计入分母。
+        「完成」读 `arc_profile.completed`（由 S-1-10 维护），不在查询时重算六板块规则。
+
+        数据范围由服务端按角色收口：辅导员只统计自己的带班（并按 `org_class.counselor_user_id` 过滤），
+        管理员需持临时授权；学生与无授权管理员返回 `EC-40302`。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: classCode
+          in: query
+          required: false
+          description: |
+            班级编码，用于单班视角。辅导员传他班编码返回 `EC-40302`；
+            班级不存在返回 `EC-40003`。
+          schema:
+            type: string
+            example: RJ2401
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DashboardOverviewVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2093,3 +2137,114 @@ components:
           type: string
           format: date-time
           example: '2026-11-27T03:30:00'
+
+    SectionProgressVO:
+      type: object
+      description: 单板块状态分布，五个状态计数之和等于 studentCount
+      required: [sectionCode, studentCount, draft, submitted, returned, approved, locked, completionRate]
+      properties:
+        sectionCode:
+          type: string
+          enum: [basic, academic, interest, life, career, mentor]
+          example: basic
+        sectionName:
+          type: string
+          example: 基本信息
+        studentCount:
+          type: integer
+          description: 该板块已建档学生数
+          example: 3
+        draft:
+          type: integer
+          example: 1
+        submitted:
+          type: integer
+          description: 待审核
+          example: 1
+        returned:
+          type: integer
+          example: 1
+        approved:
+          type: integer
+          example: 0
+        locked:
+          type: integer
+          example: 0
+        completionRate:
+          type: number
+          description: 完成率 =（已通过 + 已归档）/ 建档学生数，百分比一位小数
+          example: 0.0
+
+    ClassProgressVO:
+      type: object
+      description: 班级完成率
+      required: [classCode, studentTotal, completedStudents, pendingReview, completionRate]
+      properties:
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        studentTotal:
+          type: integer
+          description: 本学年有档案的学生数
+          example: 2
+        completedStudents:
+          type: integer
+          description: 六板块全部完成的学生数
+          example: 1
+        pendingReview:
+          type: integer
+          description: 待审核板块数
+          example: 1
+        completionRate:
+          type: number
+          example: 50.0
+
+    DashboardOverviewVO:
+      type: object
+      description: 首页进度聚合，对应后端 DashboardOverviewVO
+      required: [academicYear, studentTotal, completedStudents, completionRate, pendingReview, returnedProfiles, draftProfiles, sections, classes]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        scopeLabel:
+          type: string
+          description: 数据范围文案：全校 / 我的班级 / 指定班级名
+          example: 我的班级
+        studentTotal:
+          type: integer
+          description: 本学年已建档学生数
+          example: 3
+        completedStudents:
+          type: integer
+          description: 六板块全部完成的学生数
+          example: 1
+        completionRate:
+          type: number
+          description: 完成率百分比，一位小数
+          example: 33.3
+        pendingReview:
+          type: integer
+          description: 待审核板块数（SUBMITTED）
+          example: 2
+        returnedProfiles:
+          type: integer
+          description: 被退回板块数
+          example: 0
+        draftProfiles:
+          type: integer
+          description: 草稿板块数
+          example: 1
+        sections:
+          type: array
+          description: 六板块状态分布，固定六项
+          items:
+            $ref: '#/components/schemas/SectionProgressVO'
+        classes:
+          type: array
+          description: 班级完成率，按班级名排序；单班筛选时只有一条
+          items:
+            $ref: '#/components/schemas/ClassProgressVO'

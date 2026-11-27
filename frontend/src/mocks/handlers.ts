@@ -8,6 +8,7 @@ import {
   authenticate,
   batchCreateProfiles,
   completionStatus,
+  dashboardOverview,
   getSection,
   handlePending,
   listArchiveCandidates,
@@ -458,6 +459,23 @@ export const handlers = [
         refreshCompletion(
           academicYear,
           studentId ?? undefined,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/dashboard/overview`, ({ request }) => {
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    const classCode = url.searchParams.get('classCode') ?? undefined
+    return withAuth(request, (who) =>
+      ok(
+        dashboardOverview(
+          academicYear,
+          classCode,
           who.role,
           who.userId,
           who.tempGrant,

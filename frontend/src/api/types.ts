@@ -336,3 +336,52 @@ export interface CompletionRefreshResult {
   changedStudents: number
   refreshedAt?: string
 }
+
+/** 单板块进度分布，对应后端 SectionProgressVO。 */
+export interface SectionProgress {
+  sectionCode: SectionCode
+  sectionName?: string
+  /** 该板块已建档学生数 */
+  studentCount: number
+  draft: number
+  submitted: number
+  returned: number
+  approved: number
+  locked: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+}
+
+/** 班级完成率，对应后端 ClassProgressVO。 */
+export interface ClassProgress {
+  classCode: string
+  className?: string
+  studentTotal: number
+  completedStudents: number
+  pendingReview: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+}
+
+/**
+ * 首页进度聚合，对应后端 DashboardOverviewVO。
+ *
+ * 口径为「本学年已建档」：未建档学生没有档案记录，不计入分母。
+ * 数字全部由服务端算好，前端不要再用 sections 里的分项重新推导总数。
+ */
+export interface DashboardOverview {
+  academicYear: string
+  /** 数据范围文案：全校 / 我的班级 / 指定班级名 */
+  scopeLabel?: string
+  studentTotal: number
+  completedStudents: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+  /** 待审核板块数 */
+  pendingReview: number
+  returnedProfiles: number
+  draftProfiles: number
+  /** 六板块状态分布，固定六项 */
+  sections: SectionProgress[]
+  classes: ClassProgress[]
+}

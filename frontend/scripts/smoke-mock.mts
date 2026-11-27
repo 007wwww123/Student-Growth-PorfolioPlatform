@@ -471,6 +471,51 @@ check(
   `stu=${refreshByStudent.status} cou=${refreshByCou.status}/${refreshByCou.body.data?.checkedStudents} couYear=${refreshYearByCou.status} adminYear=${refreshYearByAdmin.status}/${refreshYearByAdmin.body.data?.checkedStudents}`,
 )
 
+// 20. 首页进度聚合（需求未编号）：范围收口、口径自洽、班级筛选
+const overviewStu = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: STU_1001 })
+const overviewNoGrant = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: ADMIN })
+const overviewCou = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: COU_9001 })
+const overviewData = overviewCou.body.data ?? {}
+const sumOfClasses = (overviewData.classes ?? []).reduce(
+  (acc: number, row: Record<string, any>) => acc + row.studentTotal,
+  0,
+)
+check(
+  '看板：学生与无授权管理员 403',
+  overviewStu.status === 403 &&
+    overviewStu.body.code === 'EC-40302' &&
+    overviewNoGrant.status === 403,
+  `stu=${overviewStu.status} admin=${overviewNoGrant.status}`,
+)
+check(
+  '看板：辅导员只统计带班且口径自洽',
+  overviewCou.status === 200 &&
+    overviewData.scopeLabel === '我的班级' &&
+    overviewData.studentTotal === 3 &&
+    overviewData.studentTotal === sumOfClasses &&
+    overviewData.sections.length === 6 &&
+    overviewData.completionRate === 0,
+  `status=${overviewCou.status} students=${overviewData.studentTotal} classSum=${sumOfClasses} rate=${overviewData.completionRate}`,
+)
+
+const overviewCross = await call(`/dashboard/overview?academicYear=${YEAR}&classCode=DZ2401`, {
+  headers: COU_9001,
+})
+const overviewOwnClass = await call(`/dashboard/overview?academicYear=${YEAR}&classCode=RJ2401`, {
+  headers: COU_9001,
+})
+const overviewAdmin = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check(
+  '看板：跨班筛选 403、本班筛选生效、管理员全校',
+  overviewCross.status === 403 &&
+    overviewOwnClass.status === 200 &&
+    overviewOwnClass.body.data.scopeLabel === '软件2401' &&
+    overviewAdmin.status === 200 &&
+    overviewAdmin.body.data.scopeLabel === '全校' &&
+    overviewAdmin.body.data.studentTotal === 4,
+  `cross=${overviewCross.status} own=${overviewOwnClass.body.data?.scopeLabel} adminScope=${overviewAdmin.body.data?.scopeLabel} adminStudents=${overviewAdmin.body.data?.studentTotal}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)

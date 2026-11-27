@@ -7,12 +7,14 @@ import type {
   CompletionRefreshResult,
   CompletionSection,
   CompletionStatus,
+  DashboardOverview,
   EnrollClass,
   EnrollStudentResult,
   FieldMeta,
   ProfileStatus,
   ReviewTask,
   SectionCode,
+  SectionProgress,
   SectionVO,
   UserRole,
 } from '../api/types'
@@ -55,6 +57,9 @@ const STATUS_LABELS: Record<ProfileStatus, string> = {
   APPROVED: '已通过',
   LOCKED: '已归档',
 }
+
+/** 已完成口径：已通过与已归档都算完成（归档不能把标记算回未完成）。 */
+const COMPLETED_STATUSES: ProfileStatus[] = ['APPROVED', 'LOCKED']
 
 /** 字段定义（mock 版），与 arc_field_def 的关键列一致。 */
 interface MockFieldDef {
@@ -857,9 +862,6 @@ export function rejectSection(
   section.reviewReason = reason.trim()
 }
 
-/** 已完成口径：已通过与已归档都算完成（归档不能把标记算回未完成）。 */
-const COMPLETED_STATUSES: ProfileStatus[] = ['APPROVED', 'LOCKED']
-
 /**
  * 完成标记读取权限：学生限本人，辅导员限本班，管理员需持临时授权。
  *
@@ -997,6 +999,154 @@ export function refreshCompletion(
     changedStudents: 0,
     refreshedAt,
   }
+}
+
+
+/**
+ * 首页进度聚合（需求未编号，按「首页进度聚合」实现）。
+ *
+ * <p>口径与后端一致：只统计本学年「已建档」学生，完成标记按「六板块全部 APPROVED / LOCKED」现算。
+ * 权限先判范围再算数——学生与无授权管理员直接 403，不返回空壳数据。</p>
+ */
+export function dashboardOverview(
+  academicYear: string,
+  classCode: string | undefined,
+  role: UserRole,
+  userId: number,
+  tempGrant: boolean,
+): DashboardOverview {
+  ensureSeed()
+  if (role === 'STU') {
+    throw new MockError('EC-40302', '学生请在各板块页面查看本人进度', 403)
+  }
+  if (role === 'ADMIN' && !tempGrant) {
+    throw new MockError('EC-40302', '管理员默认无业务数据权限', 403)
+  }
+  if (classCode && role === 'COU' && CLASS_COUNSELOR[classCode] !== userId) {
+    throw new MockError('EC-40302', '只能查看本班数据', 403)
+  }
+
+  const sections: SectionProgress[] = ALL_SECTIONS.map((code) => ({
+    sectionCode: code,
+    sectionName: SECTION_NAMES[code],
+    studentCount: 0,
+    draft: 0,
+    submitted: 0,
+    returned: 0,
+    approved: 0,
+    locked: 0,
+    completionRate: 0,
+  }))
+  const sectionOf = new Map<SectionCode, SectionProgress>(sections.map((item) => [item.sectionCode, item]))
+
+  interface ClassBucket {
+    students: Set<number>
+    completed: Set<number>
+    pendingReview: number
+    returnedProfiles: number
+    draftProfiles: number
+  }
+  const buckets = new Map<string, ClassBucket>()
+  const sectionsByStudent = new Map<number, MockSection[]>()
+
+  for (const section of store.values()) {
+    if (section.academicYear !== academicYear) {
+      continue
+    }
+    const classId = classOfStudent(section.studentId, academicYear)
+    if (role === 'COU' && CLASS_COUNSELOR[classId] !== userId) {
+      continue
+    }
+    if (classCode && classId !== classCode) {
+      continue
+    }
+
+    const progress = sectionOf.get(section.sectionCode.toLowerCase() as SectionCode)
+    if (progress) {
+      progress.studentCount += 1
+      if (section.status === 'DRAFT') progress.draft += 1
+      if (section.status === 'SUBMITTED') progress.submitted += 1
+      if (section.status === 'RETURNED') progress.returned += 1
+      if (section.status === 'APPROVED') progress.approved += 1
+      if (section.status === 'LOCKED') progress.locked += 1
+    }
+
+    const bucket = buckets.get(classId) ?? {
+      students: new Set<number>(),
+      completed: new Set<number>(),
+      pendingReview: 0,
+      returnedProfiles: 0,
+      draftProfiles: 0,
+    }
+    bucket.students.add(section.studentId)
+    if (section.status === 'SUBMITTED') bucket.pendingReview += 1
+    if (section.status === 'RETURNED') bucket.returnedProfiles += 1
+    if (section.status === 'DRAFT') bucket.draftProfiles += 1
+    buckets.set(classId, bucket)
+
+    const list = sectionsByStudent.get(section.studentId) ?? []
+    list.push(section)
+    sectionsByStudent.set(section.studentId, list)
+  }
+
+  // 六板块全部完成的学生
+  for (const [studentId, list] of sectionsByStudent) {
+    const done = new Set(list.filter((item) => COMPLETED_STATUSES.includes(item.status)).map((item) => item.sectionCode))
+    if (done.size < ALL_SECTIONS.length) {
+      continue
+    }
+    const classId = classOfStudent(studentId, academicYear)
+    buckets.get(classId)?.completed.add(studentId)
+  }
+
+  for (const progress of sections) {
+    progress.completionRate = percent(progress.approved + progress.locked, progress.studentCount)
+  }
+
+  const classes = [...buckets.entries()]
+    .map(([classId, bucket]) => ({
+      classCode: classId,
+      className: CLASS_NAMES[classId],
+      studentTotal: bucket.students.size,
+      completedStudents: bucket.completed.size,
+      pendingReview: bucket.pendingReview,
+      completionRate: percent(bucket.completed.size, bucket.students.size),
+    }))
+    .sort((a, b) => String(a.className ?? a.classCode).localeCompare(String(b.className ?? b.classCode)))
+
+  let studentTotal = 0
+  let completedStudents = 0
+  let pendingReview = 0
+  let returnedProfiles = 0
+  let draftProfiles = 0
+  for (const bucket of buckets.values()) {
+    studentTotal += bucket.students.size
+    completedStudents += bucket.completed.size
+    pendingReview += bucket.pendingReview
+    returnedProfiles += bucket.returnedProfiles
+    draftProfiles += bucket.draftProfiles
+  }
+
+  return {
+    academicYear,
+    scopeLabel: classCode ? CLASS_NAMES[classCode] : role === 'COU' ? '我的班级' : '全校',
+    studentTotal,
+    completedStudents,
+    completionRate: percent(completedStudents, studentTotal),
+    pendingReview,
+    returnedProfiles,
+    draftProfiles,
+    sections,
+    classes,
+  }
+}
+
+/** 百分比一位小数，分母为 0 时返回 0，与后端 rate() 一致。 */
+function percent(part: number, total: number): number {
+  if (total <= 0) {
+    return 0
+  }
+  return Math.round((part * 1000) / total) / 10
 }
 
 /** 重置内存数据，供测试或热更新使用。 */
