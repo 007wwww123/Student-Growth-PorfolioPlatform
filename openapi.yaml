@@ -796,6 +796,78 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /profiles/classes:
+    get:
+      tags: [建档]
+      operationId: listEnrollClasses
+      summary: 可建档班级与建档进度
+      description: |
+        批量建档页（S-1-01）的班级清单。只返回当前登录辅导员带班的班级
+        （按 `org_class.counselor_user_id` 判定），学生与管理员返回 `EC-40302`。
+
+        “已建档”的口径是**六板块实例都已存在**，不要求已填写或已审核通过；
+        本页只负责生成空档案，填写与审核进度见总览看板。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ClassEnrollVO'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /profiles/batch-create:
+    post:
+      tags: [建档]
+      operationId: batchCreateProfiles
+      summary: 批量生成六板块空档案
+      description: |
+        按 `student_id × section_code × academic_year` 为所选班级的在读学生创建板块实例，
+        状态为 `DRAFT`，每名学生六条（S-1-01）。
+
+        - **幂等**：已存在的板块逐条跳过、不覆盖任何已填内容（EX-01），重复调用返回
+          `createdProfiles = 0`，而不是报错；
+        - **数据范围**：仅辅导员可调用，且只能处理本人带班班级；管理员为只读授权、
+          学生不涉及，均返回 `EC-40302`；
+        - **学生来源**：由服务端按学生主数据 `stu_student` 取在读学生，请求体不传学生 ID；
+        - 单次最多 20 个班级 / 500 名学生，超出返回 `EC-40003`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchCreateDTO'
+      responses:
+        '200':
+          description: 建档完成（可能全部跳过）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BatchCreateResultVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1495,3 +1567,126 @@ components:
           type: string
           enum: [APPROVED, REJECTED]
           example: APPROVED
+
+    ClassEnrollVO:
+      type: object
+      description: 可建档班级行（批量建档页）
+      required: [classCode, className, studentCount, enrolledStudentCount, missingStudentCount, enrolled]
+      properties:
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        majorName:
+          type: string
+          example: 软件工程
+        gradeYear:
+          type: integer
+          example: 2024
+        studentCount:
+          type: integer
+          description: 本班在读学生数（取学生主数据，不含休学、退学）
+          example: 2
+        enrolledStudentCount:
+          type: integer
+          description: 六板块实例齐全的学生数
+          example: 1
+        missingStudentCount:
+          type: integer
+          description: 仍有板块缺失的学生数
+          example: 1
+        enrolled:
+          type: boolean
+          description: 是否已全部建档
+          example: false
+
+    BatchCreateDTO:
+      type: object
+      description: 批量建档入参
+      required: [classCodes]
+      properties:
+        academicYear:
+          type: string
+          description: 学年，为空取当前学年
+          example: 2025-2026-1
+        classCodes:
+          type: array
+          description: 班级编码集合，最多 20 个
+          maxItems: 20
+          items:
+            type: string
+          example: [RJ2401, RJ2402]
+
+    StudentEnrollItemVO:
+      type: object
+      description: 单个学生的建档结果
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentNo:
+          type: string
+          example: '2024010101'
+        studentName:
+          type: string
+          example: 李明
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        createdSections:
+          type: array
+          description: 本次新建的板块编码（大写）
+          items:
+            type: string
+          example: [ACADEMIC, INTEREST]
+        skippedSectionCount:
+          type: integer
+          description: 本次跳过（已存在）的板块数量
+          example: 4
+        status:
+          type: string
+          enum: [CREATED, SKIPPED]
+          description: CREATED 表示新建了至少一个板块；SKIPPED 表示六板块均已存在
+          example: CREATED
+
+    BatchCreateResultVO:
+      type: object
+      description: 批量建档结果汇总
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        classCodes:
+          type: array
+          items:
+            type: string
+          example: [RJ2401]
+        totalStudents:
+          type: integer
+          example: 2
+        createdStudents:
+          type: integer
+          description: 本次新建了至少一个板块的学生数
+          example: 1
+        skippedStudents:
+          type: integer
+          description: 六板块均已存在、整人跳过的学生数
+          example: 1
+        createdProfiles:
+          type: integer
+          description: 本次新建的板块实例总数
+          example: 5
+        existingProfiles:
+          type: integer
+          description: 已存在并跳过的板块实例总数
+          example: 7
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentEnrollItemVO'

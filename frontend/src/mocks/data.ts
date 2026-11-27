@@ -1,4 +1,7 @@
 import type {
+  BatchCreateResult,
+  EnrollClass,
+  EnrollStudentResult,
   FieldMeta,
   ProfileStatus,
   ReviewTask,
@@ -330,6 +333,13 @@ const CLASS_NAMES: Record<string, string> = {
   RJ2401: '软件2401',
   RJ2402: '软件2402',
   DZ2401: '电子2401',
+}
+
+/** 班级附加信息，与 org_class 的 major_name / grade_year 对齐（批量建档页展示用）。 */
+const CLASS_INFO: Record<string, { major: string; grade: number }> = {
+  RJ2401: { major: '软件工程', grade: 2024 },
+  RJ2402: { major: '软件工程', grade: 2024 },
+  DZ2401: { major: '电子信息工程', grade: 2024 },
 }
 
 interface MockSection extends SectionVO {
@@ -829,4 +839,118 @@ export function rejectSection(
 /** 重置内存数据，供测试或热更新使用。 */
 export function resetStore(): void {
   store.clear()
+}
+
+const ALL_SECTIONS = Object.keys(SECTION_NAMES) as SectionCode[]
+
+/** 学生某学年已有几个板块实例（只认已真实创建的，惰性创建的占位不算）。 */
+function existingSections(studentId: number, year: string): SectionCode[] {
+  return ALL_SECTIONS.filter((code) => store.has(keyOf(code, studentId, year)))
+}
+
+/**
+ * 可建档班级（S-1-01）：仅返回当前辅导员带班的班级，与后端数据范围一致。
+ *
+ * <p>「已建档」按六板块实例是否齐全判断，不要求已填写；这样重复点「生成」时
+ * 页面能明确显示没有可做的事。</p>
+ */
+export function listEnrollClasses(
+  academicYear: string,
+  role: UserRole,
+  userId: number,
+): EnrollClass[] {
+  ensureSeed()
+  if (role !== 'COU') {
+    throw new MockError('EC-40302', '仅辅导员可以为本班学生建档', 403)
+  }
+  const codes = Object.keys(CLASS_NAMES).filter((code) => CLASS_COUNSELOR[code] === userId)
+  const allStudents = Object.entries(STUDENTS).map(([id, student]) => ({ id: Number(id), ...student }))
+  return codes.map((code) => {
+    const students = allStudents.filter((item) => item.classId === code)
+    const enrolledCount = students.filter(
+      (item) => existingSections(item.id, academicYear).length >= ALL_SECTIONS.length,
+    ).length
+    return {
+      classCode: code,
+      className: CLASS_NAMES[code] ?? code,
+      majorName: CLASS_INFO[code]?.major,
+      gradeYear: CLASS_INFO[code]?.grade,
+      studentCount: students.length,
+      enrolledStudentCount: enrolledCount,
+      missingStudentCount: students.length - enrolledCount,
+      enrolled: students.length > 0 && enrolledCount === students.length,
+    }
+  })
+}
+
+/**
+ * 批量生成六板块空档案（S-1-01 / EX-01）。
+ *
+ * <p>与后端一致：逐板块判断是否已存在，缺哪块补哪块；已存在的绝不覆盖。
+ * 学生清单只从所选班级的在读学生里取，不接受外部传入的学生 ID。</p>
+ */
+export function batchCreateProfiles(
+  academicYear: string,
+  classCodes: string[],
+  role: UserRole,
+  userId: number,
+): BatchCreateResult {
+  ensureSeed()
+  if (role !== 'COU') {
+    throw new MockError('EC-40302', '仅辅导员可以为本班学生建档', 403)
+  }
+  if (!Array.isArray(classCodes) || classCodes.length === 0) {
+    throw new MockError('EC-40002', '请至少选择一个班级', 400)
+  }
+  const unknown = classCodes.filter((code) => !CLASS_NAMES[code])
+  if (unknown.length > 0) {
+    throw new MockError('EC-40002', `班级不存在或已停用：${unknown.join('、')}`, 400)
+  }
+  const foreign = classCodes.filter((code) => CLASS_COUNSELOR[code] !== userId)
+  if (foreign.length > 0) {
+    throw new MockError('EC-40302', '只能为本班学生建档', 403)
+  }
+
+  const students = Object.entries(STUDENTS)
+    .map(([id, student]) => ({ id: Number(id), ...student }))
+    .filter((student) => classCodes.includes(student.classId))
+    .sort((left, right) => left.no.localeCompare(right.no))
+  if (students.length === 0) {
+    throw new MockError('EC-40002', '所选班级下没有在读学生', 400)
+  }
+
+  const items: EnrollStudentResult[] = []
+  let createdProfiles = 0
+  let existingProfiles = 0
+  for (const student of students) {
+    const owned = existingSections(student.id, academicYear)
+    const missing = ALL_SECTIONS.filter((code) => !owned.includes(code))
+    for (const code of missing) {
+      createSection(code, student.id, academicYear, 'DRAFT')
+      createdProfiles++
+    }
+    existingProfiles += owned.length
+    items.push({
+      studentId: student.id,
+      studentNo: student.no,
+      studentName: student.name,
+      classCode: student.classId,
+      className: CLASS_NAMES[student.classId],
+      createdSections: missing.map((code) => code.toUpperCase()),
+      skippedSectionCount: owned.length,
+      status: missing.length === 0 ? 'SKIPPED' : 'CREATED',
+    })
+  }
+
+  const createdStudents = items.filter((item) => item.status === 'CREATED').length
+  return {
+    academicYear,
+    classCodes: [...classCodes],
+    totalStudents: students.length,
+    createdStudents,
+    skippedStudents: students.length - createdStudents,
+    createdProfiles,
+    existingProfiles,
+    students: items,
+  }
 }

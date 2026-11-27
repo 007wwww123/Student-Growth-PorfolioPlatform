@@ -73,6 +73,20 @@ const REVIEW_ITEM: NavItem = {
   matchNames: ['review-list', 'review-detail'],
 }
 
+/**
+ * 批量建档（S-1-01）：仅辅导员可见。
+ *
+ * <p>建档是业务写操作，管理员为「临时只读授权」，服务端会返回 EC-40302，
+ * 因此不在管理员菜单里出现，避免点进去才被拒。</p>
+ */
+const ENROLL_ITEM: NavItem = {
+  key: 'enroll',
+  label: '批量建档',
+  icon: 'profile',
+  to: '/enroll',
+  matchNames: ['enroll'],
+}
+
 /** 教师、管理员共用一类菜单：总览 + 六大模块 + 审核工作台。 */
 export function isStaff(role: UserRole | undefined): boolean {
   return role === 'COU' || role === 'ADMIN'
@@ -92,11 +106,16 @@ export function isStaff(role: UserRole | undefined): boolean {
  */
 export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
   if (isStaff(role)) {
-    return [
+    const groups: NavGroup[] = [
       { key: 'overview', items: [OVERVIEW_ITEM] },
       { key: 'sections', title: '档案模块', items: SECTION_ITEMS },
       { key: 'review', title: '审核', items: [REVIEW_ITEM] },
     ]
+    // 档案管理只有辅导员有写权限；管理员保持 8 项不变（总览 + 六模块 + 审核）
+    if (role === 'COU') {
+      groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM] })
+    }
+    return groups
   }
   return [{ key: 'sections', title: '档案板块', items: SECTION_ITEMS }]
 }
