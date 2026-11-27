@@ -35,7 +35,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * 首页进度聚合单测（S-1-13）。
+ * 首页进度聚合单测（需求未编号，按「首页进度聚合」实现）。
  *
  * <p>重点验证三件事：数据范围只在服务端收口、口径（分母、百分比、缺板块补零）正确、
  * 班级筛选不能越权。SQL 本身的正确性由真库联调覆盖。</p>

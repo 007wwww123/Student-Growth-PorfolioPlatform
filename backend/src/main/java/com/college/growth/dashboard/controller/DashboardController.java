@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 首页进度聚合接口（S-1-13）。
+ * 首页进度聚合接口（需求未编号，按「首页进度聚合」实现）。
  *
  * <p>一个端点返回首页所需全部数字：学生数、完成数、待审数、六板块状态分布、班级完成率。
  * 数据范围由服务端按角色收口，前端不传「看谁的数据」这类参数——传了也不作数。</p>
