@@ -32,7 +32,9 @@ import com.college.growth.common.profile.mapper.ArcProfileItemMapper;
 import com.college.growth.common.profile.mapper.ArcProfileMapper;
 import com.college.growth.common.profile.service.ProfileCompletenessService;
 import com.college.growth.common.profile.service.ProfileItemService;
+import com.college.growth.common.student.service.StudentMasterService;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.completion.service.impl.CompletionServiceImpl;
 import com.college.growth.review.service.impl.ProfileWorkflowServiceImpl;
 import java.math.BigDecimal;
 import java.util.List;
@@ -84,6 +86,9 @@ class ProfileWorkflowServiceTest {
     @Mock
     private ArcProfileItemMapper itemMapper;
 
+    @Mock
+    private StudentMasterService studentMasterService;
+
     private ProfileWorkflowServiceImpl workflow;
 
     @BeforeEach
@@ -95,7 +100,9 @@ class ProfileWorkflowServiceTest {
                 new ChangeLogService(changeLogMapper), new AuditLogService(auditLogMapper),
                 studentClassService,
                 new ProfileCompletenessService(fieldDefService, new ProfileItemService(itemMapper),
-                        profileMapper));
+                        profileMapper),
+                new CompletionServiceImpl(profileMapper, studentMasterService, studentClassService,
+                        new AuditLogService(auditLogMapper)));
     }
 
     @AfterEach

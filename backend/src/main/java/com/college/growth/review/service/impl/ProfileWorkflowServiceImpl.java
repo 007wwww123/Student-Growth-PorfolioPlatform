@@ -1,7 +1,5 @@
 package com.college.growth.review.service.impl;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.college.growth.common.constant.CommonConstants;
 import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.ProfileStatusEnum;
@@ -15,6 +13,7 @@ import com.college.growth.common.profile.service.ProfileCompletenessService;
 import com.college.growth.common.result.FieldErrorDetail;
 import com.college.growth.common.result.ResultCode;
 import com.college.growth.common.util.TextUtils;
+import com.college.growth.completion.service.CompletionService;
 import com.college.growth.review.common.ReviewConstants;
 import com.college.growth.review.service.ProfileWorkflowService;
 import java.time.LocalDateTime;
@@ -46,16 +45,20 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
 
     private final ProfileCompletenessService completenessService;
 
+    private final CompletionService completionService;
+
     public ProfileWorkflowServiceImpl(ArcProfileMapper profileMapper,
                                       ChangeLogService changeLogService,
                                       AuditLogService auditLogService,
                                       StudentClassService studentClassService,
-                                      ProfileCompletenessService completenessService) {
+                                      ProfileCompletenessService completenessService,
+                                      CompletionService completionService) {
         this.profileMapper = profileMapper;
         this.changeLogService = changeLogService;
         this.auditLogService = auditLogService;
         this.studentClassService = studentClassService;
         this.completenessService = completenessService;
+        this.completionService = completionService;
     }
 
     @Override
@@ -188,18 +191,10 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void refreshCompleted(Long studentId, String academicYear) {
-        List<ArcProfile> profiles = profileMapper.selectList(Wrappers.<ArcProfile>lambdaQuery()
-                .eq(ArcProfile::getStudentId, studentId)
-                .eq(ArcProfile::getAcademicYear, academicYear));
-        boolean completed = profiles.size() >= CommonConstants.SECTION_COUNT
-                && profiles.stream()
-                .allMatch(item -> ProfileStatusEnum.APPROVED.name().equals(item.getStatus()));
-        // 派生标记不参与乐观锁：它不是用户内容，不因并发查看而冲突。
-        profileMapper.update(null, Wrappers.<ArcProfile>lambdaUpdate()
-                .eq(ArcProfile::getStudentId, studentId)
-                .eq(ArcProfile::getAcademicYear, academicYear)
-                .set(ArcProfile::getCompleted, completed));
-        log.debug("重算完成标记 studentId={} year={} completed={}", studentId, academicYear, completed);
+        // 判定与写库都收口在 CompletionService：状态机只负责「什么时候重算」，
+        // 「算不算完成」不在这里再写一份，否则归档、统计、状态机会出现三套口径。
+        boolean changed = completionService.refresh(studentId, academicYear);
+        log.debug("重算完成标记 studentId={} year={} changed={}", studentId, academicYear, changed);
     }
 
     /** BR-S03：只有该班现任辅导员可以审核；管理员没有业务审核权。 */

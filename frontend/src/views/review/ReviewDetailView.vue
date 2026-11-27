@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DecisionDialog from '@/components/DecisionDialog.vue'
 import FieldList from '@/components/FieldList.vue'
 import PendingHint from '@/components/PendingHint.vue'
+import { fetchCompletionStatus } from '@/api/completion'
 import { isApiError, type ApiError } from '@/api/http'
 import { approveSection, rejectSection } from '@/api/review'
 import {
@@ -12,7 +13,7 @@ import {
   rejectPendingField,
   revealField,
 } from '@/api/sections'
-import type { SectionCode, SectionVO } from '@/api/types'
+import type { CompletionStatus, SectionCode, SectionVO } from '@/api/types'
 import { formatValue, formFromFields, renderFieldsOf, type PendingItem } from '@/fieldMeta'
 import { DEMO_ACADEMIC_YEAR, SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
 
@@ -40,6 +41,10 @@ const error = ref<ApiError | null>(null)
 const actionError = ref('')
 const notice = ref('')
 const processing = ref<string | null>(null)
+
+/** 完成标记（BR-S10）：服务端派生值，页面只读展示，通过审核后自动跟随刷新。 */
+const completion = ref<CompletionStatus | null>(null)
+const completionError = ref('')
 
 const dialog = reactive({
   open: false,
@@ -97,6 +102,23 @@ async function load(): Promise<void> {
     error.value = isApiError(e) ? e : null
   } finally {
     loading.value = false
+  }
+  await loadCompletion()
+}
+
+/**
+ * 读取完成标记。
+ *
+ * <p>单独一个接口而不是塞进板块详情：标记是「学生 × 学年」级别，
+ * 与当前正在看哪个板块无关；失败也不该让整个详情页报错，只在卡片里提示。</p>
+ */
+async function loadCompletion(): Promise<void> {
+  completionError.value = ''
+  try {
+    completion.value = await fetchCompletionStatus(studentId.value, academicYear.value)
+  } catch (e) {
+    completion.value = null
+    completionError.value = isApiError(e) ? `${e.message}（${e.code}）` : '完成标记加载失败'
   }
 }
 
@@ -201,7 +223,7 @@ function goBack(): void {
   void router.push({ name: 'review-list' })
 }
 
-watch(code, load)
+watch([code, studentId], load)
 
 onMounted(load)
 </script>
@@ -274,6 +296,46 @@ onMounted(load)
         @confirm="onConfirmPending"
         @reject="onRejectPending"
       />
+
+      <div class="card">
+        <div class="card__head">
+          <h2 class="card__title">六板块完成标记</h2>
+          <span
+            v-if="completion"
+            class="tag"
+            :class="completion.completed ? 'tag--APPROVED' : 'tag--DRAFT'"
+          >
+            {{ completion.completed ? '已完成' : '未完成' }}
+          </span>
+        </div>
+        <p v-if="completionError" class="alert alert--danger">{{ completionError }}</p>
+        <template v-else-if="completion">
+          <p class="completion__summary">
+            已通过 {{ completion.completedSectionCount }} / {{ completion.sections.length }} 个板块
+            <template v-if="completion.pendingSections.length">
+              · 待完成：{{ completion.pendingSections.join('、') }}
+            </template>
+          </p>
+          <ul class="completion__grid">
+            <li
+              v-for="item in completion.sections"
+              :key="item.sectionCode"
+              class="completion__item"
+              :class="{
+                'completion__item--done': item.completed,
+                'completion__item--missing': !item.status,
+              }"
+            >
+              <span class="completion__name">{{ item.sectionName }}</span>
+              <span class="completion__state">{{ item.statusLabel }}</span>
+            </li>
+          </ul>
+          <p class="completion__tip">
+            标记由服务端按「六板块全部通过」判定并落库，页面不参与计算；已归档板块仍计为完成。
+          </p>
+        </template>
+        <p v-else class="completion__summary">完成标记加载中…</p>
+      </div>
 
       <div class="card">
         <h2 class="card__title">档案内容</h2>
@@ -396,10 +458,67 @@ onMounted(load)
   box-shadow: var(--shadow);
 }
 
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .card__title {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+}
+
+.completion__summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.completion__grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.completion__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  font-size: 12px;
+}
+
+.completion__item--done {
+  border-color: #bbf7d0;
+  background: var(--color-success-bg);
+}
+
+.completion__item--missing {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.completion__name {
+  font-weight: 600;
+}
+
+.completion__state {
+  color: var(--color-text-muted);
+}
+
+.completion__tip {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .actions {

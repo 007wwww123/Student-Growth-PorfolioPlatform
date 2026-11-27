@@ -4,11 +4,18 @@ import type { FieldErrorDetail, SectionCode } from '../api/types'
 import {
   MockError,
   approveSection,
+  archiveStudents,
   authenticate,
+  batchCreateProfiles,
+  completionStatus,
+  dashboardOverview,
   getSection,
   handlePending,
+  listArchiveCandidates,
+  listEnrollClasses,
   listTasks,
   loginUser,
+  refreshCompletion,
   rejectSection,
   revealValue,
   roleLabelOf,
@@ -206,8 +213,7 @@ export const handlers = [
     })
   }),
 
-  http.post(`${API_BASE_PATH}/sections/:code/:studentId/submit`, ({ params, request }) => {
-    const code = parseCode(params.code as string)
+  http.post(`${API_BASE_PATH}/sections/:code/:studentId/submit`, ({ params, request }) => {    const code = parseCode(params.code as string)
     const studentId = parseId(params.studentId as string)
     if (!code) {
       return fail('EC-40003', '板块编码不在允许范围内', 400)
@@ -365,5 +371,118 @@ export const handlers = [
       )
       return ok()
     })
+  }),
+
+  http.get(`${API_BASE_PATH}/profiles/classes`, ({ request }) => {
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    return withAuth(request, (who) =>
+      ok(listEnrollClasses(academicYear, who.role, who.userId)),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/profiles/batch-create`, async ({ request }) => {
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
+    const classCodes = Array.isArray(body.classCodes)
+      ? body.classCodes.map((item) => String(item))
+      : []
+    if (classCodes.length === 0) {
+      return fail('EC-40002', '请至少选择一个班级', 400)
+    }
+    return withAuth(request, (who) =>
+      ok(batchCreateProfiles(academicYear, classCodes, who.role, who.userId)),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/archive/candidates`, ({ request }) => {
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    const classCode = url.searchParams.get('classCode') ?? undefined
+    return withAuth(request, (who) =>
+      ok(listArchiveCandidates(academicYear, who.role, who.userId, who.tempGrant, classCode)),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/archive/batch`, async ({ request }) => {
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
+    const studentIds = Array.isArray(body.studentIds)
+      ? body.studentIds.map((item) => Number(item))
+      : []
+    if (studentIds.length === 0) {
+      return fail('EC-40002', '请至少选择一名学生', 400)
+    }
+    return withAuth(request, (who) =>
+      ok(archiveStudents(academicYear, studentIds, who.role, who.userId)),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/completion/students/:studentId`, ({ params, request }) => {
+    const studentId = parseId(params.studentId as string)
+    if (!studentId) {
+      return fail('EC-40003', '参数不合法', 400)
+    }
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    return withAuth(request, (who) =>
+      ok(
+        completionStatus(
+          studentId,
+          academicYear,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
+    )
+  }),
+
+  http.post(`${API_BASE_PATH}/completion/refresh`, ({ request }) => {
+    const url = new URL(request.url)
+    const rawStudentId = url.searchParams.get('studentId')
+    const studentId = rawStudentId ? parseId(rawStudentId) : undefined
+    if (rawStudentId && !studentId) {
+      return fail('EC-40003', '参数不合法', 400)
+    }
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    return withAuth(request, (who) =>
+      ok(
+        refreshCompletion(
+          academicYear,
+          studentId ?? undefined,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
+    )
+  }),
+
+  http.get(`${API_BASE_PATH}/dashboard/overview`, ({ request }) => {
+    const url = new URL(request.url)
+    const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
+    const classCode = url.searchParams.get('classCode') ?? undefined
+    return withAuth(request, (who) =>
+      ok(
+        dashboardOverview(
+          academicYear,
+          classCode,
+          who.role,
+          who.userId,
+          who.tempGrant,
+        ),
+      ),
+    )
   }),
 ]

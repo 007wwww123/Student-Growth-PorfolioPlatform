@@ -824,6 +824,279 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /profiles/classes:
+    get:
+      tags: [建档]
+      operationId: listEnrollClasses
+      summary: 可建档班级与建档进度
+      description: |
+        批量建档页（S-1-01）的班级清单。只返回当前登录辅导员带班的班级
+        （按 `org_class.counselor_user_id` 判定），学生与管理员返回 `EC-40302`。
+
+        “已建档”的口径是**六板块实例都已存在**，不要求已填写或已审核通过；
+        本页只负责生成空档案，填写与审核进度见总览看板。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ClassEnrollVO'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /profiles/batch-create:
+    post:
+      tags: [建档]
+      operationId: batchCreateProfiles
+      summary: 批量生成六板块空档案
+      description: |
+        按 `student_id × section_code × academic_year` 为所选班级的在读学生创建板块实例，
+        状态为 `DRAFT`，每名学生六条（S-1-01）。
+
+        - **幂等**：已存在的板块逐条跳过、不覆盖任何已填内容（EX-01），重复调用返回
+          `createdProfiles = 0`，而不是报错；
+        - **数据范围**：仅辅导员可调用，且只能处理本人带班班级；管理员为只读授权、
+          学生不涉及，均返回 `EC-40302`；
+        - **学生来源**：由服务端按学生主数据 `stu_student` 取在读学生，请求体不传学生 ID；
+        - 单次最多 20 个班级 / 500 名学生，超出返回 `EC-40003`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchCreateDTO'
+      responses:
+        '200':
+          description: 建档完成（可能全部跳过）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BatchCreateResultVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /archive/candidates:
+    get:
+      tags: [归档]
+      operationId: listArchiveCandidates
+      summary: 归档候选人与六板块完成情况
+      description: |
+        毕业归档页（S-1-11）的名单。辅导员只看到本班学生，管理员需持临时授权；
+        其他角色返回 `EC-40302`。
+
+        判定口径：六板块齐全且每块为 `APPROVED` 或 `LOCKED` 才 `archivable=true`；
+        已归档也计入完成，否则重复提交同一批名单会永远被判为未完成。
+        未建档学生同样会出现在名单里（`sectionCount = 0`），避免「根本没开始」的人从列表消失。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: classCode
+          in: query
+          required: false
+          description: 班级编码；不传表示本人全部带班班级
+          schema:
+            type: string
+            example: DZ2401
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ArchiveCandidateVO'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /archive/batch:
+    post:
+      tags: [归档]
+      operationId: archiveBatch
+      summary: 批量归档
+      description: |
+        六板块全部通过后整体转 `LOCKED`（终态，仅 ADMIN 可解冻），并逐块写 `ARCHIVE` 变更日志。
+
+        - **整批语义（EX-12）**：名单内只要有一名学生存在未完成板块，整批不执行，
+          `rejected = true`，`students` 返回未完成清单，`archivedStudents = 0`；
+        - 结果用 200 返回而不是 409：拒绝原因是一份清单，压成错误字符串会丢结构，
+          错误码只用于真正的非法请求（400/403/409 乐观锁）；
+        - 已归档学生按跳过处理（`skippedStudents`），不重复写库；
+        - 仅辅导员可调用，且只能归档本班学生；单批最多 200 人。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveBatchDTO'
+      responses:
+        '200':
+          description: 归档结果（可能被整批拒绝）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ArchiveResultVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /completion/students/{studentId}:
+    get:
+      tags: [完成标记]
+      operationId: getCompletionStatus
+      summary: 读取学生六板块完成标记
+      description: |
+        完成标记（BR-S10）是「学生 × 学年」级别的派生结论：六个板块全部处于 `APPROVED`
+        或 `LOCKED` 时为 `true`，由服务端写入 `arc_profile.completed`，客户端不得自行统计。
+
+        已归档（`LOCKED`）也算完成——归档是完成之后的终态，不能因为归档把标记算回未完成。
+
+        数据范围：学生只能读本人，辅导员只能读本班学生，管理员需持临时授权；越权返回 `EC-40302`。
+        逐板块列表固定六项，未建档板块的 `status` 为空、`statusLabel` 为「未建档」。
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CompletionStatusVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /completion/refresh:
+    post:
+      tags: [完成标记]
+      operationId: refreshCompletion
+      summary: 手动重算完成标记
+      description: |
+        运维补偿接口：正常路径上，提交 / 撤回 / 审核通过 / 退回都会在事务内重算标记，
+        只有绕过状态机的旁路数据（直接改库、批量修数脚本、迁移导入）才需要手工触发。
+
+        不传 `studentId` 表示整学年重算，仅持临时授权的管理员可执行；辅导员只能重算本班单个学生；
+        学生一律 `EC-40302`。重算是幂等的：标记未翻转时不写库，`changedStudents` 为 0。
+        每次调用写一条 `COMPLETION` 类型审计日志。
+      parameters:
+        - name: studentId
+          in: query
+          required: false
+          description: 学生 ID；不传表示整学年重算（仅管理员）
+          schema:
+            type: integer
+            format: int64
+            example: 1001
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 重算完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CompletionRefreshVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dashboard/overview:
+    get:
+      tags: [总览]
+      operationId: getDashboardOverview
+      summary: 首页进度聚合
+      description: |
+        一个请求返回首页所需的全部数字：建档学生数、六板块完成数、待审核量、
+        六板块状态分布与班级完成率。前端不要再用分项自己推导总数，否则两端口径会漂。
+
+        口径为「本学年已建档」：未建档学生没有 `arc_profile` 记录，不计入分母。
+        「完成」读 `arc_profile.completed`（由 S-1-10 维护），不在查询时重算六板块规则。
+
+        数据范围由服务端按角色收口：辅导员只统计自己的带班（并按 `org_class.counselor_user_id` 过滤），
+        管理员需持临时授权；学生与无授权管理员返回 `EC-40302`。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: classCode
+          in: query
+          required: false
+          description: |
+            班级编码，用于单班视角。辅导员传他班编码返回 `EC-40302`；
+            班级不存在返回 `EC-40003`。
+          schema:
+            type: string
+            example: RJ2401
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DashboardOverviewVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1521,3 +1794,483 @@ components:
           type: string
           enum: [APPROVED, REJECTED]
           example: APPROVED
+
+    ClassEnrollVO:
+      type: object
+      description: 可建档班级行（批量建档页）
+      required: [classCode, className, studentCount, enrolledStudentCount, missingStudentCount, enrolled]
+      properties:
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        majorName:
+          type: string
+          example: 软件工程
+        gradeYear:
+          type: integer
+          example: 2024
+        studentCount:
+          type: integer
+          description: 本班在读学生数（取学生主数据，不含休学、退学）
+          example: 2
+        enrolledStudentCount:
+          type: integer
+          description: 六板块实例齐全的学生数
+          example: 1
+        missingStudentCount:
+          type: integer
+          description: 仍有板块缺失的学生数
+          example: 1
+        enrolled:
+          type: boolean
+          description: 是否已全部建档
+          example: false
+
+    BatchCreateDTO:
+      type: object
+      description: 批量建档入参
+      required: [classCodes]
+      properties:
+        academicYear:
+          type: string
+          description: 学年，为空取当前学年
+          example: 2025-2026-1
+        classCodes:
+          type: array
+          description: 班级编码集合，最多 20 个
+          maxItems: 20
+          items:
+            type: string
+          example: [RJ2401, RJ2402]
+
+    StudentEnrollItemVO:
+      type: object
+      description: 单个学生的建档结果
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentNo:
+          type: string
+          example: '2024010101'
+        studentName:
+          type: string
+          example: 李明
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        createdSections:
+          type: array
+          description: 本次新建的板块编码（大写）
+          items:
+            type: string
+          example: [ACADEMIC, INTEREST]
+        skippedSectionCount:
+          type: integer
+          description: 本次跳过（已存在）的板块数量
+          example: 4
+        status:
+          type: string
+          enum: [CREATED, SKIPPED]
+          description: CREATED 表示新建了至少一个板块；SKIPPED 表示六板块均已存在
+          example: CREATED
+
+    BatchCreateResultVO:
+      type: object
+      description: 批量建档结果汇总
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        classCodes:
+          type: array
+          items:
+            type: string
+          example: [RJ2401]
+        totalStudents:
+          type: integer
+          example: 2
+        createdStudents:
+          type: integer
+          description: 本次新建了至少一个板块的学生数
+          example: 1
+        skippedStudents:
+          type: integer
+          description: 六板块均已存在、整人跳过的学生数
+          example: 1
+        createdProfiles:
+          type: integer
+          description: 本次新建的板块实例总数
+          example: 5
+        existingProfiles:
+          type: integer
+          description: 已存在并跳过的板块实例总数
+          example: 7
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentEnrollItemVO'
+
+    ArchiveSectionStatusVO:
+      type: object
+      description: 板块状态行（归档清单里的未完成板块）
+      properties:
+        sectionCode:
+          type: string
+          example: ACADEMIC
+        sectionName:
+          type: string
+          example: 学业发展
+        status:
+          type: string
+          nullable: true
+          enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+          description: 当前状态；未建档时为空
+        statusLabel:
+          type: string
+          example: 未建档
+
+    ArchiveCandidateVO:
+      type: object
+      description: 归档候选人（一名学生某学年的六板块完成情况）
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1004
+        studentNo:
+          type: string
+          example: '2024010301'
+        studentName:
+          type: string
+          example: 赵敏
+        classCode:
+          type: string
+          example: DZ2401
+        className:
+          type: string
+          example: 电子2401
+        sectionCount:
+          type: integer
+          description: 已存在的板块实例数，0–6
+          example: 6
+        approvedCount:
+          type: integer
+          example: 6
+        lockedCount:
+          type: integer
+          example: 0
+        incompleteSections:
+          type: array
+          description: 未完成（未建档或未通过）的板块，空数组表示六块都已完成
+          items:
+            $ref: '#/components/schemas/ArchiveSectionStatusVO'
+        archivable:
+          type: boolean
+          description: 六板块齐全且全部完成
+          example: true
+        archived:
+          type: boolean
+          description: 六板块均已 LOCKED
+          example: false
+
+    ArchiveBatchDTO:
+      type: object
+      description: 批量归档入参
+      required: [studentIds]
+      properties:
+        academicYear:
+          type: string
+          description: 学年，为空取当前学年
+          example: 2025-2026-1
+        studentIds:
+          type: array
+          description: 待归档学生 ID，最多 200 人
+          maxItems: 200
+          items:
+            type: integer
+            format: int64
+          example: [1004]
+
+    ArchiveStudentResultVO:
+      type: object
+      description: 单个学生的归档结果
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1004
+        studentNo:
+          type: string
+          example: '2024010301'
+        studentName:
+          type: string
+          example: 赵敏
+        className:
+          type: string
+          example: 电子2401
+        status:
+          type: string
+          enum: [ARCHIVED, SKIPPED, INCOMPLETE]
+          description: ARCHIVED 本次归档 / SKIPPED 本就已归档 / INCOMPLETE 未完成
+          example: ARCHIVED
+        missingSections:
+          type: array
+          description: 未完成的板块名称，仅 INCOMPLETE 时有值
+          items:
+            type: string
+          example: [学业发展, 职业规划]
+
+    ArchiveResultVO:
+      type: object
+      description: 批量归档结果
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        requestedStudents:
+          type: integer
+          example: 1
+        archivedStudents:
+          type: integer
+          example: 1
+        archivedProfiles:
+          type: integer
+          description: 本次转为已归档的板块实例数
+          example: 6
+        skippedStudents:
+          type: integer
+          description: 本就已归档、本次跳过的学生数
+          example: 0
+        rejected:
+          type: boolean
+          description: 是否因存在未完成板块整批拒绝（此时 archivedStudents = 0）
+          example: false
+        students:
+          type: array
+          description: 拒绝时为未完成清单；成功时为本次归档与跳过的学生
+          items:
+            $ref: '#/components/schemas/ArchiveStudentResultVO'
+
+    CompletionSectionVO:
+      type: object
+      description: 单板块完成情况，未建档板块的 status 为空
+      required: [sectionCode, completed]
+      properties:
+        sectionCode:
+          type: string
+          description: 板块编码，小写
+          enum: [basic, academic, interest, life, career, mentor]
+          example: basic
+        sectionName:
+          type: string
+          example: 基本信息
+        status:
+          description: 板块状态，未建档时为空
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ProfileStatus'
+        statusLabel:
+          type: string
+          description: 状态中文名，未建档固定为「未建档」
+          example: 已通过
+        completed:
+          type: boolean
+          description: 本学期是否算完成（APPROVED / LOCKED）
+          example: true
+
+    CompletionStatusVO:
+      type: object
+      description: 六板块完成标记，对应后端 CompletionStatusVO
+      required: [studentId, academicYear, completed, createdSectionCount, completedSectionCount, pendingSections, sections]
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentNo:
+          type: string
+          example: '2024010101'
+        studentName:
+          type: string
+          example: 李明
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件工程2401班
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        completed:
+          type: boolean
+          description: 六板块是否全部完成，取自 arc_profile.completed
+          example: false
+        createdSectionCount:
+          type: integer
+          description: 已建档板块数，0–6
+          example: 6
+        completedSectionCount:
+          type: integer
+          description: 已完成板块数，0–6
+          example: 5
+        pendingSections:
+          type: array
+          description: 未完成板块中文名，按板块顺序；全部完成时为空数组
+          items:
+            type: string
+          example: [导师寄语]
+        sections:
+          type: array
+          description: 逐板块状态，固定六项
+          items:
+            $ref: '#/components/schemas/CompletionSectionVO'
+
+    CompletionRefreshVO:
+      type: object
+      description: 完成标记重算结果，对应后端 CompletionRefreshVO
+      required: [academicYear, checkedStudents, completedStudents, changedStudents]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        trigger:
+          type: string
+          description: MANUAL 手动 / SCHEDULED 定时 / STATUS_CHANGE 状态流转触发
+          enum: [MANUAL, SCHEDULED, STATUS_CHANGE]
+          example: MANUAL
+        checkedStudents:
+          type: integer
+          description: 参与判定的学生数
+          example: 4
+        completedStudents:
+          type: integer
+          description: 重算后判定为完成的学生数
+          example: 1
+        changedStudents:
+          type: integer
+          description: 标记发生翻转的学生数，重复重算应为 0
+          example: 1
+        refreshedAt:
+          type: string
+          format: date-time
+          example: '2026-11-27T03:30:00'
+
+    SectionProgressVO:
+      type: object
+      description: 单板块状态分布，五个状态计数之和等于 studentCount
+      required: [sectionCode, studentCount, draft, submitted, returned, approved, locked, completionRate]
+      properties:
+        sectionCode:
+          type: string
+          enum: [basic, academic, interest, life, career, mentor]
+          example: basic
+        sectionName:
+          type: string
+          example: 基本信息
+        studentCount:
+          type: integer
+          description: 该板块已建档学生数
+          example: 3
+        draft:
+          type: integer
+          example: 1
+        submitted:
+          type: integer
+          description: 待审核
+          example: 1
+        returned:
+          type: integer
+          example: 1
+        approved:
+          type: integer
+          example: 0
+        locked:
+          type: integer
+          example: 0
+        completionRate:
+          type: number
+          description: 完成率 =（已通过 + 已归档）/ 建档学生数，百分比一位小数
+          example: 0.0
+
+    ClassProgressVO:
+      type: object
+      description: 班级完成率
+      required: [classCode, studentTotal, completedStudents, pendingReview, completionRate]
+      properties:
+        classCode:
+          type: string
+          example: RJ2401
+        className:
+          type: string
+          example: 软件2401
+        studentTotal:
+          type: integer
+          description: 本学年有档案的学生数
+          example: 2
+        completedStudents:
+          type: integer
+          description: 六板块全部完成的学生数
+          example: 1
+        pendingReview:
+          type: integer
+          description: 待审核板块数
+          example: 1
+        completionRate:
+          type: number
+          example: 50.0
+
+    DashboardOverviewVO:
+      type: object
+      description: 首页进度聚合，对应后端 DashboardOverviewVO
+      required: [academicYear, studentTotal, completedStudents, completionRate, pendingReview, returnedProfiles, draftProfiles, sections, classes]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        scopeLabel:
+          type: string
+          description: 数据范围文案：全校 / 我的班级 / 指定班级名
+          example: 我的班级
+        studentTotal:
+          type: integer
+          description: 本学年已建档学生数
+          example: 3
+        completedStudents:
+          type: integer
+          description: 六板块全部完成的学生数
+          example: 1
+        completionRate:
+          type: number
+          description: 完成率百分比，一位小数
+          example: 33.3
+        pendingReview:
+          type: integer
+          description: 待审核板块数（SUBMITTED）
+          example: 2
+        returnedProfiles:
+          type: integer
+          description: 被退回板块数
+          example: 0
+        draftProfiles:
+          type: integer
+          description: 草稿板块数
+          example: 1
+        sections:
+          type: array
+          description: 六板块状态分布，固定六项
+          items:
+            $ref: '#/components/schemas/SectionProgressVO'
+        classes:
+          type: array
+          description: 班级完成率，按班级名排序；单班筛选时只有一条
+          items:
+            $ref: '#/components/schemas/ClassProgressVO'

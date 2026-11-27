@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  首页进度聚合查询。
+
+  口径说明：
+    1. 班级取值与 StudentClassService、待审列表保持一致：
+       COALESCE(stu_student.class_code, basic.classId, '未分班')。
+       两处都用同一个表达式，否则「看板里的班」和「待审列表里的班」会对不上。
+    2. 完成标记读 arc_profile.completed（由 S-1-10 维护），不在这里重算六板块规则。
+    3. 只统计本学年有档案的学生：未建档学生没有行，看板用「建档进度」口径表达。
+
+  两条查询共用 scope 片段，保证总数与板块分布出自同一数据范围。
+-->
+<mapper namespace="com.college.growth.dashboard.mapper.DashboardMapper">
+
+    <sql id="classKey">COALESCE(NULLIF(s.class_code, ''), ci.value_text, '未分班')</sql>
+
+    <sql id="scope">
+        FROM arc_profile p
+        LEFT JOIN stu_student s ON s.id = p.student_id
+        LEFT JOIN arc_profile bp
+               ON bp.student_id = p.student_id
+              AND bp.academic_year = p.academic_year
+              AND bp.section_code = 'BASIC'
+        LEFT JOIN arc_profile_item ci
+               ON ci.profile_id = bp.id
+              AND ci.field_code = 'basic.classId'
+        LEFT JOIN org_class c ON c.class_code = <include refid="classKey"/>
+        WHERE p.academic_year = #{academicYear}
+        <if test="counselorId != null">
+            AND c.counselor_user_id = #{counselorId}
+            AND c.status = 1
+        </if>
+        <if test="classCode != null and classCode != ''">
+            AND <include refid="classKey"/> = #{classCode}
+        </if>
+    </sql>
+
+    <select id="selectClassRows" resultType="com.college.growth.dashboard.mapper.DashboardClassRow">
+        SELECT <include refid="classKey"/> AS classCode,
+               MAX(c.class_name) AS className,
+               COUNT(DISTINCT p.student_id) AS studentTotal,
+               COUNT(DISTINCT CASE WHEN p.completed = 1 THEN p.student_id END) AS completedStudents,
+               COALESCE(SUM(CASE WHEN p.status = 'SUBMITTED' THEN 1 ELSE 0 END), 0) AS submittedProfiles,
+               COALESCE(SUM(CASE WHEN p.status = 'RETURNED' THEN 1 ELSE 0 END), 0) AS returnedProfiles,
+               COALESCE(SUM(CASE WHEN p.status = 'DRAFT' THEN 1 ELSE 0 END), 0) AS draftProfiles
+        <include refid="scope"/>
+        GROUP BY <include refid="classKey"/>
+        ORDER BY className IS NULL, className
+    </select>
+
+    <select id="selectSectionRows" resultType="com.college.growth.dashboard.mapper.DashboardSectionRow">
+        SELECT p.section_code AS sectionCode,
+               p.status AS status,
+               COUNT(*) AS profileCount,
+               COUNT(DISTINCT p.student_id) AS studentCount
+        <include refid="scope"/>
+        GROUP BY p.section_code, p.status
+    </select>
+
+</mapper>

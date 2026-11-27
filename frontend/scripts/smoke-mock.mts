@@ -305,6 +305,261 @@ const cleared = await call(fixture + '/fields/basic.emergencyPhone/confirm' + re
 check('辅导员确认清空必填字段', cleared.status === 200 && cleared.body.code === '0', reviewYear)
 await checkBlockedApproval('正式必填值为空时禁止审核通过', 422, 'EC-42202')
 
+// 17. 批量建档（S-1-01）：仅辅导员、仅本班；重复执行不重复创建
+const enrollAsStu = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: STU_1001 })
+const enrollOwn = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: COU_9001 })
+const enrollAdmin = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check('可建档班级（学生）403', enrollAsStu.status === 403, `status=${enrollAsStu.status}`)
+check('可建档班级（管理员只读）403', enrollAdmin.status === 403, `status=${enrollAdmin.status}`)
+check(
+  '可建档班级（本班）',
+  enrollOwn.status === 200 &&
+    enrollOwn.body.data.length === 2 &&
+    enrollOwn.body.data.every((item: any) => item.studentCount >= 1),
+  `classes=${enrollOwn.body.data?.map((item: any) => `${item.classCode}:${item.studentCount}`).join('/')}`,
+)
+
+const enrollForeign = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['DZ2401'] }),
+)
+check(
+  '跨班建档 403',
+  enrollForeign.status === 403 && enrollForeign.body.code === 'EC-40302',
+  `status=${enrollForeign.status} code=${enrollForeign.body.code}`,
+)
+
+// 前面的用例已为 1001 逐个访问过六个板块（mock 会惰性创建），1002 只有基本信息；
+// 因此本班两人合计 12 个板块位置，本次应补齐 1002 缺的 5 块，跳过的 7 块保持不变。
+const firstEnroll = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['RJ2401'] }),
+)
+check(
+  '批量建档：补齐缺失板块',
+  firstEnroll.status === 200 &&
+    firstEnroll.body.data.totalStudents === 2 &&
+    firstEnroll.body.data.createdStudents === 1 &&
+    firstEnroll.body.data.createdProfiles + firstEnroll.body.data.existingProfiles === 12,
+  `students=${firstEnroll.body.data?.totalStudents} created=${firstEnroll.body.data?.createdProfiles} existing=${firstEnroll.body.data?.existingProfiles}`,
+)
+
+const secondEnroll = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['RJ2401'] }),
+)
+check(
+  '批量建档幂等：二次不重复创建',
+  secondEnroll.status === 200 &&
+    secondEnroll.body.data.createdProfiles === 0 &&
+    secondEnroll.body.data.skippedStudents === 2,
+  `created=${secondEnroll.body.data?.createdProfiles} skipped=${secondEnroll.body.data?.skippedStudents}`,
+)
+
+const noClass = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: [] }),
+)
+check('批量建档缺参数 400', noClass.status === 400, `status=${noClass.status} code=${noClass.body.code}`)
+// 18. 毕业归档（S-1-11）：权限、整批拒绝（EX-12）、归档终态与重复提交
+const arcAsStu = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: STU_1001 })
+const arcAdminNoGrant = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: ADMIN })
+const arcOwn = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9001 })
+const arcOther = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9002 })
+check('归档名单（学生）403', arcAsStu.status === 403, `status=${arcAsStu.status}`)
+check('归档名单（管理员无授权）403', arcAdminNoGrant.status === 403, `status=${arcAdminNoGrant.status}`)
+check(
+  '归档名单（本班）',
+  arcOwn.status === 200 && arcOwn.body.data.length === 3 && arcOwn.body.data.every((item: any) => !item.archivable),
+  `rows=${arcOwn.body.data?.length} archivable=${arcOwn.body.data?.filter((i: any) => i.archivable).length}`,
+)
+check(
+  '归档名单（六板块全通过可归档）',
+  arcOther.status === 200 && arcOther.body.data.length >= 1 && arcOther.body.data[0].archivable === true,
+  `rows=${arcOther.body.data?.length} first=${arcOther.body.data?.[0]?.studentName}/${arcOther.body.data?.[0]?.approvedCount}`,
+)
+
+const archiveRejected = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [1001] }),
+)
+check(
+  '整批拒绝 + 未完成清单（EX-12）',
+  archiveRejected.status === 200 &&
+    archiveRejected.body.data.rejected === true &&
+    archiveRejected.body.data.archivedProfiles === 0 &&
+    archiveRejected.body.data.students[0].missingSections.length === 6,
+  `rejected=${archiveRejected.body.data?.rejected} missing=${archiveRejected.body.data?.students?.[0]?.missingSections?.length}`,
+)
+
+const crossArchive = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [1004] }),
+)
+check('跨班归档 403', crossArchive.status === 403, `status=${crossArchive.status} code=${crossArchive.body.code}`)
+
+const archived = await call(
+  `/archive/batch`,
+  json('POST', COU_9002, { academicYear: YEAR, studentIds: [1004] }),
+)
+check(
+  '归档成功：六板块转 LOCKED',
+  archived.status === 200 &&
+    archived.body.data.archivedStudents === 1 &&
+    archived.body.data.archivedProfiles === 6 &&
+    archived.body.data.rejected === false,
+  `students=${archived.body.data?.archivedStudents} profiles=${archived.body.data?.archivedProfiles}`,
+)
+
+const afterArchive = await call(`/archive/candidates?academicYear=${YEAR}`, { headers: COU_9002 })
+check(
+  '归档后标记为已归档',
+  afterArchive.body.data[0].archived === true && afterArchive.body.data[0].lockedCount === 6,
+  `archived=${afterArchive.body.data?.[0]?.archived} locked=${afterArchive.body.data?.[0]?.lockedCount}`,
+)
+
+const archiveAgain = await call(
+  `/archive/batch`,
+  json('POST', COU_9002, { academicYear: YEAR, studentIds: [1004] }),
+)
+check(
+  '重复归档跳过',
+  archiveAgain.status === 200 &&
+    archiveAgain.body.data.skippedStudents === 1 &&
+    archiveAgain.body.data.archivedStudents === 0,
+  `skipped=${archiveAgain.body.data?.skippedStudents} archived=${archiveAgain.body.data?.archivedStudents}`,
+)
+
+const emptyArchive = await call(
+  `/archive/batch`,
+  json('POST', COU_9001, { academicYear: YEAR, studentIds: [] }),
+)
+check('归档空名单 400', emptyArchive.status === 400, `status=${emptyArchive.status}`)
+
+// 19. 完成标记（BR-S10）：六项固定、缺块「未建档」、权限与手动重算
+const completion = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const completionData = completion.body.data ?? {}
+const sections: Array<Record<string, any>> = completionData.sections ?? []
+check(
+  '完成标记：六板块固定下发且口径自洽',
+  completion.status === 200 &&
+    sections.length === 6 &&
+    sections[0].sectionCode === 'basic' &&
+    sections.every((item) => typeof item.statusLabel === 'string' && item.statusLabel.length > 0) &&
+    completionData.completed === (completionData.completedSectionCount === 6) &&
+    completionData.pendingSections.length === 6 - completionData.completedSectionCount,
+  `status=${completion.status} sections=${sections.length} completed=${completionData.completedSectionCount} pending=${completionData.pendingSections?.length}`,
+)
+
+// 改用未建过档的学年：该学年 1004 没有任何板块实例，六块都应显示「未建档」。
+// （本学年的种子已由归档演示改成六块全通过，不能再拿它验「缺块」口径。）
+const UNBUILT_YEAR = '2024-2025-1'
+const partial = await call(`/completion/students/1004?academicYear=${UNBUILT_YEAR}`, {
+  headers: COU_9002,
+})
+const partialSections: Array<Record<string, any>> = partial.body.data?.sections ?? []
+const missing = partialSections.filter((item) => item.statusLabel === '未建档')
+check(
+  '完成标记：缺块显示未建档',
+  partial.status === 200 &&
+    missing.length === 6 &&
+    partial.body.data?.createdSectionCount === 0 &&
+    missing.every((item) => item.status === undefined && item.completed === false),
+  `status=${partial.status} missing=${missing.length} created=${partial.body.data?.createdSectionCount}`,
+)
+
+const completionOther = await call(`/completion/students/1004?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '完成标记：学生看他人 403',
+  completionOther.status === 403 && completionOther.body.code === 'EC-40302',
+  `status=${completionOther.status} code=${completionOther.body.code}`,
+)
+
+const completionCou = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: COU_9001 })
+const completionCrossClass = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: COU_9002 })
+const completionNoGrant = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: ADMIN })
+const completionGrant = await call(`/completion/students/1001?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check(
+  '完成标记：本班辅导员可读、跨班与管理员无授权 403',
+  completionCou.status === 200 &&
+    completionCrossClass.status === 403 &&
+    completionNoGrant.status === 403 &&
+    completionGrant.status === 200,
+  `cou=${completionCou.status} cross=${completionCrossClass.status} admin=${completionNoGrant.status} grant=${completionGrant.status}`,
+)
+
+const refreshByStudent = await call(`/completion/refresh?studentId=1001&academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const refreshByCou = await call(`/completion/refresh?studentId=1001&academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: COU_9001,
+})
+const refreshYearByCou = await call(`/completion/refresh?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: COU_9001,
+})
+const refreshYearByAdmin = await call(`/completion/refresh?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: ADMIN_GRANT,
+})
+check(
+  '完成标记：手动重算权限',
+  refreshByStudent.status === 403 &&
+    refreshByCou.status === 200 &&
+    refreshByCou.body.data.checkedStudents === 1 &&
+    refreshYearByCou.status === 403 &&
+    refreshYearByAdmin.status === 200 &&
+    refreshYearByAdmin.body.data.checkedStudents === 4,
+  `stu=${refreshByStudent.status} cou=${refreshByCou.status}/${refreshByCou.body.data?.checkedStudents} couYear=${refreshYearByCou.status} adminYear=${refreshYearByAdmin.status}/${refreshYearByAdmin.body.data?.checkedStudents}`,
+)
+
+// 20. 首页进度聚合（需求未编号）：范围收口、口径自洽、班级筛选
+const overviewStu = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: STU_1001 })
+const overviewNoGrant = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: ADMIN })
+const overviewCou = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: COU_9001 })
+const overviewData = overviewCou.body.data ?? {}
+const sumOfClasses = (overviewData.classes ?? []).reduce(
+  (acc: number, row: Record<string, any>) => acc + row.studentTotal,
+  0,
+)
+check(
+  '看板：学生与无授权管理员 403',
+  overviewStu.status === 403 &&
+    overviewStu.body.code === 'EC-40302' &&
+    overviewNoGrant.status === 403,
+  `stu=${overviewStu.status} admin=${overviewNoGrant.status}`,
+)
+check(
+  '看板：辅导员只统计带班且口径自洽',
+  overviewCou.status === 200 &&
+    overviewData.scopeLabel === '我的班级' &&
+    overviewData.studentTotal === 3 &&
+    overviewData.studentTotal === sumOfClasses &&
+    overviewData.sections.length === 6 &&
+    overviewData.completionRate === 0,
+  `status=${overviewCou.status} students=${overviewData.studentTotal} classSum=${sumOfClasses} rate=${overviewData.completionRate}`,
+)
+
+const overviewCross = await call(`/dashboard/overview?academicYear=${YEAR}&classCode=DZ2401`, {
+  headers: COU_9001,
+})
+const overviewOwnClass = await call(`/dashboard/overview?academicYear=${YEAR}&classCode=RJ2401`, {
+  headers: COU_9001,
+})
+const overviewAdmin = await call(`/dashboard/overview?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check(
+  '看板：跨班筛选 403、本班筛选生效、管理员全校',
+  overviewCross.status === 403 &&
+    overviewOwnClass.status === 200 &&
+    overviewOwnClass.body.data.scopeLabel === '软件2401' &&
+    overviewAdmin.status === 200 &&
+    overviewAdmin.body.data.scopeLabel === '全校' &&
+    overviewAdmin.body.data.studentTotal === 4,
+  `cross=${overviewCross.status} own=${overviewOwnClass.body.data?.scopeLabel} adminScope=${overviewAdmin.body.data?.scopeLabel} adminStudents=${overviewAdmin.body.data?.studentTotal}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)

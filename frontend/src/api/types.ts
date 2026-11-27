@@ -186,3 +186,202 @@ export interface ReviewDecision {
   /** 退回理由，退回时必填且不少于 10 字 */
   reason?: string
 }
+
+/**
+ * 可建档班级行，对应后端 ClassEnrollVO。
+ *
+ * 「已建档」的口径是六个板块实例都存在，不要求已填写或已通过。
+ */
+export interface EnrollClass {
+  classCode: string
+  className: string
+  majorName?: string
+  gradeYear?: number
+  /** 本班在读学生数 */
+  studentCount: number
+  /** 六板块齐全的学生数 */
+  enrolledStudentCount: number
+  /** 仍有板块缺失的学生数 */
+  missingStudentCount: number
+  /** 是否已全部建档 */
+  enrolled: boolean
+}
+
+/** 单个学生的建档结果，对应后端 StudentEnrollItemVO。 */
+export interface EnrollStudentResult {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  /** 本次新建的板块编码（大写） */
+  createdSections: string[]
+  /** 本次跳过的板块数量 */
+  skippedSectionCount: number
+  /** CREATED / SKIPPED */
+  status: 'CREATED' | 'SKIPPED'
+}
+
+/** 批量建档结果，对应后端 BatchCreateResultVO。 */
+export interface BatchCreateResult {
+  academicYear: string
+  classCodes: string[]
+  totalStudents: number
+  createdStudents: number
+  skippedStudents: number
+  createdProfiles: number
+  existingProfiles: number
+  students: EnrollStudentResult[]
+}
+
+/** 板块状态行，对应后端 ArchiveSectionStatusVO。 */
+export interface ArchiveSectionStatus {
+  /** 板块编码，大写 */
+  sectionCode: string
+  sectionName: string
+  /** 当前状态；未建档时为空 */
+  status?: ProfileStatus
+  /** 状态中文名；未建档时为「未建档」 */
+  statusLabel: string
+}
+
+/**
+ * 归档候选人，对应后端 ArchiveCandidateVO。
+ *
+ * 口径：六板块齐全且每块 APPROVED / LOCKED 才可归档；已归档也计入「完成」。
+ */
+export interface ArchiveCandidate {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  sectionCount: number
+  approvedCount: number
+  lockedCount: number
+  incompleteSections: ArchiveSectionStatus[]
+  archivable: boolean
+  archived: boolean
+}
+
+/** 单个学生的归档结果，对应后端 ArchiveStudentResultVO。 */
+export interface ArchiveStudentResult {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  className?: string
+  /** ARCHIVED 已归档 / SKIPPED 本就已归档 / INCOMPLETE 未完成 */
+  status: 'ARCHIVED' | 'SKIPPED' | 'INCOMPLETE'
+  /** 未完成的板块名称，仅 INCOMPLETE 时有值 */
+  missingSections?: string[]
+}
+
+/** 批量归档结果，对应后端 ArchiveResultVO。rejected=true 表示整批未执行（EX-12）。 */
+export interface ArchiveResult {
+  academicYear: string
+  requestedStudents: number
+  archivedStudents: number
+  archivedProfiles: number
+  skippedStudents: number
+  rejected: boolean
+  students: ArchiveStudentResult[]
+}
+
+/**
+ * 单板块完成情况，对应后端 CompletionSectionVO。
+ *
+ * sectionCode 为小写（与 SectionCode 一致），未建档板块的 status 为空、statusLabel 为「未建档」。
+ */
+export interface CompletionSection {
+  sectionCode: SectionCode
+  sectionName?: string
+  status?: ProfileStatus
+  statusLabel?: string
+  /** 本学期是否算完成（已通过 / 已归档） */
+  completed: boolean
+}
+
+/**
+ * 完成标记，对应后端 CompletionStatusVO（BR-S10）。
+ *
+ * 标记是服务端派生值，前端不自行统计「几块通过了几块」，否则两边口径会漂。
+ */
+export interface CompletionStatus {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  academicYear: string
+  /** 六板块是否全部完成 */
+  completed: boolean
+  /** 已建档板块数 0–6 */
+  createdSectionCount: number
+  /** 已完成板块数 0–6 */
+  completedSectionCount: number
+  /** 未完成板块中文名，按板块顺序 */
+  pendingSections: string[]
+  /** 逐板块状态，固定六项 */
+  sections: CompletionSection[]
+}
+
+/** 完成标记重算结果，对应后端 CompletionRefreshVO。 */
+export interface CompletionRefreshResult {
+  academicYear: string
+  /** MANUAL 手动 / SCHEDULED 定时 / STATUS_CHANGE 状态流转触发 */
+  trigger?: string
+  checkedStudents: number
+  completedStudents: number
+  /** 标记发生翻转的学生数，重复重算应为 0 */
+  changedStudents: number
+  refreshedAt?: string
+}
+
+/** 单板块进度分布，对应后端 SectionProgressVO。 */
+export interface SectionProgress {
+  sectionCode: SectionCode
+  sectionName?: string
+  /** 该板块已建档学生数 */
+  studentCount: number
+  draft: number
+  submitted: number
+  returned: number
+  approved: number
+  locked: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+}
+
+/** 班级完成率，对应后端 ClassProgressVO。 */
+export interface ClassProgress {
+  classCode: string
+  className?: string
+  studentTotal: number
+  completedStudents: number
+  pendingReview: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+}
+
+/**
+ * 首页进度聚合，对应后端 DashboardOverviewVO。
+ *
+ * 口径为「本学年已建档」：未建档学生没有档案记录，不计入分母。
+ * 数字全部由服务端算好，前端不要再用 sections 里的分项重新推导总数。
+ */
+export interface DashboardOverview {
+  academicYear: string
+  /** 数据范围文案：全校 / 我的班级 / 指定班级名 */
+  scopeLabel?: string
+  studentTotal: number
+  completedStudents: number
+  /** 完成率百分比，一位小数 */
+  completionRate: number
+  /** 待审核板块数 */
+  pendingReview: number
+  returnedProfiles: number
+  draftProfiles: number
+  /** 六板块状态分布，固定六项 */
+  sections: SectionProgress[]
+  classes: ClassProgress[]
+}

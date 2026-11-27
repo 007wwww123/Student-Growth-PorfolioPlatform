@@ -25,7 +25,7 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { title: '板块总览' },
+      meta: { title: '总览' },
     },
     {
       path: '/sections/basic',
@@ -76,6 +76,20 @@ const router = createRouter({
       meta: { title: '审核详情', roles: ['COU', 'ADMIN'] },
     },
     {
+      path: '/enroll',
+      name: 'enroll',
+      component: () => import('@/views/EnrollView.vue'),
+      // 建档是辅导员的业务写操作，管理员为只读授权，不在角色范围内
+      meta: { title: '批量建档', roles: ['COU'] },
+    },
+    {
+      path: '/archive',
+      name: 'archive',
+      component: () => import('@/views/ArchiveView.vue'),
+      // 归档是辅导员的业务写操作，管理员为只读授权，不在角色范围内
+      meta: { title: '毕业归档', roles: ['COU'] },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),
@@ -113,6 +127,17 @@ router.beforeEach((to) => {
     if (user == null || !roles.includes(user.role)) {
       return { name: 'forbidden' }
     }
+  }
+
+  /**
+   * 总览是教师/管理员的数据看板入口，学生侧边栏里没有这一项，
+   * 直接访问或登录后默认回跳时落到「基本信息」，避免停在无菜单高亮的页面上。
+   *
+   * <p>口径已确认：学生首页就是「基本信息」，不是 403、也不是给他单独开一个总览。
+   * 登录页默认回跳 '/' 时同样走这里，因此登录后 URL 会稳定落在 /sections/basic。</p>
+   */
+  if (to.name === 'home' && getUser()?.role === 'STU') {
+    return { name: 'section-basic' }
   }
   return true
 })
