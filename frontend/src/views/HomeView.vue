@@ -6,10 +6,10 @@ import { SECTIONS } from '@/sectionMeta'
 <template>
   <section>
     <div class="intro">
-      <h1 class="intro__title">六大板块</h1>
+      <h1 class="intro__title">总览</h1>
       <p class="intro__desc">
-        每个板块对应后端一个 Controller（<code>/api/sections/{code}</code>）与一组
-        SaveDTO / VO。当前为骨架阶段：页面可用，接口由 MSW 提供 mock 数据。
+        数据可视化看板待接入：后续在此汇总各板块完成度、审核进度与分布统计。
+        当前先提供六大模块的入口，可分别进入填写、提交与查看审核结果。
       </p>
     </div>
 
@@ -42,13 +42,6 @@ import { SECTIONS } from '@/sectionMeta'
 .intro__desc {
   margin: 0;
   color: var(--color-text-muted);
-}
-
-code {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: #eef2f7;
-  font-size: 12px;
 }
 
 .cards {

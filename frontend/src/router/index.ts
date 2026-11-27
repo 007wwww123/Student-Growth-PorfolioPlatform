@@ -25,7 +25,7 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { title: '板块总览' },
+      meta: { title: '总览' },
     },
     {
       path: '/sections/basic',
