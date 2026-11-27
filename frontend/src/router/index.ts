@@ -76,6 +76,13 @@ const router = createRouter({
       meta: { title: '审核详情', roles: ['COU', 'ADMIN'] },
     },
     {
+      path: '/enroll',
+      name: 'enroll',
+      component: () => import('@/views/EnrollView.vue'),
+      // 建档是辅导员的业务写操作，管理员为只读授权，不在角色范围内
+      meta: { title: '批量建档', roles: ['COU'] },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),

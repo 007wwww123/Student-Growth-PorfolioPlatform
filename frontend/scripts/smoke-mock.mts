@@ -261,6 +261,63 @@ check(
   `approve=${approved.status} now=${afterApprove.body.data.status} again=${again.status}`,
 )
 
+// 17. 批量建档（S-1-01）：仅辅导员、仅本班；重复执行不重复创建
+const enrollAsStu = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: STU_1001 })
+const enrollOwn = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: COU_9001 })
+const enrollAdmin = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: ADMIN_GRANT })
+check('可建档班级（学生）403', enrollAsStu.status === 403, `status=${enrollAsStu.status}`)
+check('可建档班级（管理员只读）403', enrollAdmin.status === 403, `status=${enrollAdmin.status}`)
+check(
+  '可建档班级（本班）',
+  enrollOwn.status === 200 &&
+    enrollOwn.body.data.length === 2 &&
+    enrollOwn.body.data.every((item: any) => item.studentCount >= 1),
+  `classes=${enrollOwn.body.data?.map((item: any) => `${item.classCode}:${item.studentCount}`).join('/')}`,
+)
+
+const enrollForeign = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['DZ2401'] }),
+)
+check(
+  '跨班建档 403',
+  enrollForeign.status === 403 && enrollForeign.body.code === 'EC-40302',
+  `status=${enrollForeign.status} code=${enrollForeign.body.code}`,
+)
+
+// 前面的用例已为 1001 逐个访问过六个板块（mock 会惰性创建），1002 只有基本信息；
+// 因此本班两人合计 12 个板块位置，本次应补齐 1002 缺的 5 块，跳过的 7 块保持不变。
+const firstEnroll = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['RJ2401'] }),
+)
+check(
+  '批量建档：补齐缺失板块',
+  firstEnroll.status === 200 &&
+    firstEnroll.body.data.totalStudents === 2 &&
+    firstEnroll.body.data.createdStudents === 1 &&
+    firstEnroll.body.data.createdProfiles + firstEnroll.body.data.existingProfiles === 12,
+  `students=${firstEnroll.body.data?.totalStudents} created=${firstEnroll.body.data?.createdProfiles} existing=${firstEnroll.body.data?.existingProfiles}`,
+)
+
+const secondEnroll = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: ['RJ2401'] }),
+)
+check(
+  '批量建档幂等：二次不重复创建',
+  secondEnroll.status === 200 &&
+    secondEnroll.body.data.createdProfiles === 0 &&
+    secondEnroll.body.data.skippedStudents === 2,
+  `created=${secondEnroll.body.data?.createdProfiles} skipped=${secondEnroll.body.data?.skippedStudents}`,
+)
+
+const noClass = await call(
+  `/profiles/batch-create`,
+  json('POST', COU_9001, { academicYear: YEAR, classCodes: [] }),
+)
+check('批量建档缺参数 400', noClass.status === 400, `status=${noClass.status} code=${noClass.body.code}`)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)

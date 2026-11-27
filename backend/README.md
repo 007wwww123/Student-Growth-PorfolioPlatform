@@ -187,7 +187,14 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
 | POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用**；
+建档是跨板块能力（一次生成六条实例），同样单独一组路径：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/profiles/classes?academicYear=` | 本班建档进度：在读人数、已建档人数、待建档人数 |
+| POST | `/api/profiles/batch-create` | 按学年 + 班级批量生成六板块空实例，已存在跳过（EX-01） |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -202,6 +209,19 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 新增板块时**不需要**写审核代码：只要板块的提交动作调用 `ProfileWorkflowService.submit(...)`，
 就能被审核模块纳管。板块负责「内容是否齐全」，审核模块负责「谁能改、何时能改、留什么痕」。
+
+### 批量建档模块（`com.college.growth.enroll`）
+
+| 类 | 职责 |
+|---|---|
+| `ProfileEnrollService` | 按班级取在读学生，逐板块补齐缺失实例；已存在的一律跳过、不覆盖 |
+| `ProfileEnrollController` | `/api/profiles/**` 两个接口 |
+
+口径要点：
+
+- 只允许辅导员调用，且只能处理本人带班班级（`org_class.counselor_user_id`）；管理员为只读授权，返回 `EC-40302`；
+- 学生清单来自 `stu_student`（在读），请求体不传学生 ID，避免越权建档；
+- 只建 `arc_profile`，不写 `arc_profile_item`、不触发审核；字段值仍由各板块保存接口与学工同步写入。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 

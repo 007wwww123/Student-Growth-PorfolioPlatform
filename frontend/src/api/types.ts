@@ -186,3 +186,50 @@ export interface ReviewDecision {
   /** 退回理由，退回时必填且不少于 10 字 */
   reason?: string
 }
+
+/**
+ * 可建档班级行，对应后端 ClassEnrollVO。
+ *
+ * 「已建档」的口径是六个板块实例都存在，不要求已填写或已通过。
+ */
+export interface EnrollClass {
+  classCode: string
+  className: string
+  majorName?: string
+  gradeYear?: number
+  /** 本班在读学生数 */
+  studentCount: number
+  /** 六板块齐全的学生数 */
+  enrolledStudentCount: number
+  /** 仍有板块缺失的学生数 */
+  missingStudentCount: number
+  /** 是否已全部建档 */
+  enrolled: boolean
+}
+
+/** 单个学生的建档结果，对应后端 StudentEnrollItemVO。 */
+export interface EnrollStudentResult {
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  /** 本次新建的板块编码（大写） */
+  createdSections: string[]
+  /** 本次跳过的板块数量 */
+  skippedSectionCount: number
+  /** CREATED / SKIPPED */
+  status: 'CREATED' | 'SKIPPED'
+}
+
+/** 批量建档结果，对应后端 BatchCreateResultVO。 */
+export interface BatchCreateResult {
+  academicYear: string
+  classCodes: string[]
+  totalStudents: number
+  createdStudents: number
+  skippedStudents: number
+  createdProfiles: number
+  existingProfiles: number
+  students: EnrollStudentResult[]
+}
