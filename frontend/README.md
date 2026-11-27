@@ -57,7 +57,8 @@ frontend/
 ├── public/
 │   └── mockServiceWorker.js   # MSW 拦截脚本，由 npx msw init 生成，随仓库提交
 ├── scripts/
-│   └── smoke-mock.mts         # mock 冒烟测试（30 项断言，含鉴权）
+│   ├── smoke-mock.mts         # mock 冒烟测试（71 项断言，含鉴权与权限配置）
+│   └── check-nav.mts          # 菜单口径回归（5 项断言，按角色与临时授权）
 ├── src/
 │   ├── api/
 │   │   ├── constants.ts       # 成功码 '0'、接口前缀
@@ -65,7 +66,8 @@ frontend/
 │   │   ├── http.ts            # axios 实例、Bearer 注入、Result 解包、401 跳登录、ApiError
 │   │   ├── auth.ts            # 登录 / 当前用户 / 登出
 │   │   ├── sections.ts        # 板块接口：详情 / 保存 / 提交 / 撤回 / 待确认 / 明文
-│   │   └── review.ts          # 审核接口：待审列表 / 通过 / 退回
+│   │   ├── review.ts          # 审核接口：待审列表 / 通过 / 退回
+│   │   └── permission.ts      # 管理员字段权限矩阵：读取 / 保存 / 恢复默认
 │   ├── auth/
 │   │   ├── session.ts         # 令牌与用户的读写、过期判定、角色判断
 │   │   └── accounts.ts        # 演示账号清单（仅登录页一键填入用）
@@ -77,13 +79,14 @@ frontend/
 │   │   ├── data.ts            # 内存数据 + 账号、权限与状态机模拟
 │   │   ├── handlers.ts        # 登录与全部业务接口的 mock 实现
 │   │   └── browser.ts         # Service Worker 启动
-│   ├── router/index.ts        # 登录 + 六板块 + 审核两条路由 + 403 + 404，带登录与角色守卫
+│   ├── router/index.ts        # 登录 + 六板块 + 审核两条 + 权限配置 + 403 + 404，带登录与角色守卫
 │   ├── views/
 │   │   ├── LoginView.vue      # 登录页（账号密码 + 演示账号一键填入）
 │   │   ├── ForbiddenView.vue  # 角色不足时的 403 页
 │   │   ├── HomeView.vue       # 板块总览
 │   │   ├── SectionShell.vue   # 板块页公共外壳（加载 / 表单 / 保存 / 提交 / 撤回）
 │   │   ├── review/            # 待审列表与审核详情
+│   │   ├── admin/             # 管理员字段权限配置（六板块 × 字段级四选一）
 │   │   ├── NotFoundView.vue   # 404
 │   │   └── sections/          # 六个板块视图，各自独立文件
 │   ├── fieldMeta.ts           # fieldMeta → 控件映射、表单值铺装、待确认条目类型
@@ -117,10 +120,24 @@ frontend/
 | `/review/:code/:studentId` | `review-detail` | `review/ReviewDetailView.vue` | — | 审核详情：只读字段、待确认值处理、通过 / 退回、该生六板块完成标记，同样限 `COU` / `ADMIN` |
 | `/enroll` | `enroll` | `EnrollView.vue` | — | 批量建档：本班建档进度、按班级生成六板块空档案，`meta.roles = [COU]` |
 | `/archive` | `archive` | `ArchiveView.vue` | — | 毕业归档：本班名单、六板块完成情况、批量归档与未完成清单，`meta.roles = [COU]` |
+| `/admin/permissions` | `admin-permissions` | `admin/PermissionView.vue` | — | 字段权限配置：六板块页签、逐字段四选一、恢复默认、`?section=all` 全部板块只读总览，`meta.roles = [ADMIN]` |
 | `/forbidden` | `forbidden` | `ForbiddenView.vue` | — | 角色不足时的落地页 |
 | `/:pathMatch(.*)*` | `not-found` | `NotFoundView.vue` | — | 404 |
 
 路由按板块拆分组件（而不是一个通用页取参数），两人各自负责的板块落在不同文件，改动不冲突。
+
+### 菜单按「角色 + 授权」计算（`navMenu.ts`）
+
+| 角色 | 菜单 |
+|---|---|
+| 学生 | 档案板块 ×6 |
+| 辅导员 | 总览 + 档案模块 ×6 + 审核 + 档案管理（批量建档 / 毕业归档） |
+| 管理员（持临时授权 `tempGrant=true`） | 总览 + 档案模块 ×6 + 审核 + 系统管理（字段权限配置） |
+| 管理员（无授权 `tempGrant=false`） | 仅系统管理（字段权限配置） |
+
+无授权管理员默认没有业务数据权限：看板与待审列表返回 `EC-40302`，板块详情只回空视图（需求 2.1），因此菜单里不出现这些入口；路由守卫同步拦截手输 URL，统一送到 `/admin/permissions`，避免出现「菜单项点进去必然 403」的死链。
+
+板块页对管理员只读，提示条直接深链到 `/admin/permissions?section=<code>`，落在对应板块页签，省掉再点一次。
 审核两条路由以板块编码为参数，六个板块共用一套页面。
 
 ### 登录与守卫
@@ -180,7 +197,8 @@ HomeView.vue / SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue / En
 | `npm run build` | `vue-tsc --noEmit` 类型检查 + Vite 生产构建，产物在 `dist/` |
 | `npm run type-check` | 仅类型检查，不构建 |
 | `npm run preview` | 本地预览 `dist/` 产物 |
-| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构、权限与状态机（30 项断言） |
+| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构、权限与状态机（71 项断言） |
+| `npm run check:nav` | 菜单口径回归：四类角色的可见项、管理员按 `tempGrant` 收敛、菜单路径唯一（5 项断言） |
 
 改动 `src/mocks/` 或 `src/api/types.ts` 后建议跑一次 `smoke:mock`，能挡住大部分契约漂移。
 
@@ -194,7 +212,7 @@ HomeView.vue / SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue / En
 2. 本机新建 `.env.local`，写入 `VITE_USE_MOCK=false`；后端端口不是 8080 时再加 `VITE_BACKEND_ORIGIN=http://127.0.0.1:18080`；
 3. 重启 `npm run dev`，用下面的演示账号登录（mock 与真实后端的账号清单一致）。
 
-mock 覆盖：登录 / 当前用户 / 登出与未登录拦截，六板块详情 / 保存 / 提交、撤回（限一次）、待确认值确认与驳回、敏感字段明文、待审列表（按辅导员班级过滤）、通过 / 退回、完成标记读取与手动重算（含缺块「未建档」与整学年重算的权限差异）、批量建档与批量归档（含整批拒绝）、首页看板（按角色收口范围、班级筛选不能越权），以及 `EC-40101`（未登录）、`EC-40104`（密码错）、`EC-40301`（越权字段）、`EC-40302`（数据范围）、`EC-42202`（必填缺失）、`EC-42203`（退回理由过短）、`EC-40902`（状态冲突）、`EC-40903`（撤回超限）等错误码。
+mock 覆盖：登录 / 当前用户 / 登出与未登录拦截，六板块详情 / 保存 / 提交、撤回（限一次）、待确认值确认与驳回、敏感字段明文、待审列表（按辅导员班级过滤）、通过 / 退回、完成标记读取与手动重算（含缺块「未建档」与整学年重算的权限差异）、批量建档与批量归档（含整批拒绝）、首页看板（按角色收口范围、班级筛选不能越权），管理员权限矩阵读取 / 保存 / 恢复默认（仅 ADMIN，六板块 51 字段，保存后按角色控制实际编辑），以及 `EC-40101`（未登录）、`EC-40104`（密码错）、`EC-40301`（越权字段）、`EC-40302`（数据范围）、`EC-40303`（非管理员配置权限 / 管理员改内容）、`EC-42202`（必填缺失）、`EC-42203`（退回理由过短）、`EC-40902`（状态冲突）、`EC-40903`（撤回超限）等错误码。
 
 完成标记（BR-S10）只在审核详情页展示，没有独立路由：卡片固定列六块，缺块显示「未建档」，
 未完成清单直接由服务端下发的 `pendingSections` 渲染——前端不按 `status` 数组自己数，

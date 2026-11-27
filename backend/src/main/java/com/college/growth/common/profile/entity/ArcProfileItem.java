@@ -9,7 +9,7 @@ import lombok.Data;
 /**
  * 字段值（物理表 {@code arc_profile_item}）：一行一个字段。
  *
- * <p>用 EAV 变体而非「一板块一张宽表」，是因为六板块共 51 个主表字段且会随政策增删，
+ * <p>用 EAV 变体而非「一板块一张宽表」，是因为六板块共 48 个主表字段且会随政策增删，
  * 宽表意味着每次加字段都要改表结构与实体；这里加字段只加一行定义。</p>
  *
  * <p>STU_CFM 字段的修改先写 {@code pendingText/pendingJson}，{@code confirmStatus=PENDING}，

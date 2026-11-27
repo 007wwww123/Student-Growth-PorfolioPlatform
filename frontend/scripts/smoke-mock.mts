@@ -32,6 +32,7 @@ async function authHeaders(username: string, password: string): Promise<Record<s
 
 const STU_1001 = await authHeaders('2024010101', 'Passw0rd!')
 const STU_1004 = await authHeaders('2024010301', 'Passw0rd!')
+const STU_1003 = await authHeaders('2024010201', 'Passw0rd!')
 const COU_9001 = await authHeaders('cou9001', 'Passw0rd!')
 const COU_9002 = await authHeaders('cou9002', 'Passw0rd!')
 const ADMIN = await authHeaders('admin0', 'Passw0rd!')
@@ -558,6 +559,133 @@ check(
     overviewAdmin.body.data.scopeLabel === '全校' &&
     overviewAdmin.body.data.studentTotal === 4,
   `cross=${overviewCross.status} own=${overviewOwnClass.body.data?.scopeLabel} adminScope=${overviewAdmin.body.data?.scopeLabel} adminStudents=${overviewAdmin.body.data?.studentTotal}`,
+)
+
+
+// 21. 管理员字段权限配置：六板块覆盖、保存生效、越权拦截、管理员不改内容
+const permAsStudent = await call('/admin/permissions', { headers: STU_1003 })
+const permAsCou = await call('/admin/permissions', { headers: COU_9001 })
+const permAsAdmin = await call('/admin/permissions', { headers: ADMIN })
+const permSections = permAsAdmin.body.data?.sections ?? []
+const permBasic = permSections.find((section: Record<string, any>) => section.sectionCode === 'BASIC')
+const permName = permBasic?.fields?.find((field: Record<string, any>) => field.fieldCode === 'basic.name')
+const permMajor = permBasic?.fields?.find((field: Record<string, any>) => field.fieldCode === 'basic.majorId')
+const fieldCounts = permSections.map((section: Record<string, any>) => section.fields.length)
+check(
+  '权限配置：仅管理员可读矩阵',
+  permAsStudent.status === 403 &&
+    permAsStudent.body.code === 'EC-40303' &&
+    permAsCou.status === 403 &&
+    permAsAdmin.status === 200,
+  `stu=${permAsStudent.status} cou=${permAsCou.status} admin=${permAsAdmin.status}`,
+)
+check(
+  '权限配置：六板块字段齐全（16/5/4/12/5/6）',
+  permSections.length === 6 &&
+    fieldCounts.join(',') === '16,5,4,12,5,6' &&
+    permName?.permissionMode === 'NONE' &&
+    permMajor?.locked === true,
+  `sections=${permSections.length} counts=${fieldCounts.join(',')} name=${permName?.permissionMode} majorLocked=${permMajor?.locked}`,
+)
+
+const saveNameStudent = await call('/admin/permissions/basic', json('PUT', ADMIN, {
+  fields: [{ fieldCode: 'basic.name', editableRoles: ['STU'] }],
+}))
+const detailAfterStudent = await call(`/sections/basic/1003?academicYear=${YEAR}`, { headers: STU_1003 })
+const nameMetaAfterStudent = (detailAfterStudent.body.data?.fieldMeta ?? []).find(
+  (field: Record<string, any>) => field.fieldCode === 'basic.name',
+)
+const stuSaveName = await call(`/sections/basic/1003`, json('PUT', STU_1003, {
+  academicYear: YEAR,
+  fields: { name: '李明' },
+}))
+const couSaveNameWhenStudentOnly = await call(`/sections/basic/1003`, json('PUT', COU_9001, {
+  academicYear: YEAR,
+  fields: { name: '李明' },
+}))
+check(
+  '权限配置：姓名改为仅学生后，学生可写、老师被拒',
+  saveNameStudent.status === 200 &&
+    saveNameStudent.body.data?.changed === 1 &&
+    nameMetaAfterStudent?.editable === true &&
+    stuSaveName.status === 200 &&
+    couSaveNameWhenStudentOnly.status === 403 &&
+    couSaveNameWhenStudentOnly.body.code === 'EC-40301',
+  `changed=${saveNameStudent.body.data?.changed} metaEditable=${nameMetaAfterStudent?.editable} stu=${stuSaveName.status} cou=${couSaveNameWhenStudentOnly.status}/${couSaveNameWhenStudentOnly.body.code}`,
+)
+
+const saveNameTeacher = await call('/admin/permissions/basic', json('PUT', ADMIN, {
+  fields: [{ fieldCode: 'basic.name', editableRoles: ['COU'] }],
+}))
+const stuSaveNameWhenTeacherOnly = await call(`/sections/basic/1003`, json('PUT', STU_1003, {
+  academicYear: YEAR,
+  fields: { name: '李明' },
+}))
+const couSaveNameWhenTeacherOnly = await call(`/sections/basic/1003`, json('PUT', COU_9001, {
+  academicYear: YEAR,
+  fields: { name: '李明' },
+}))
+const detailStudentAfterTeacher = await call(`/sections/basic/1003?academicYear=${YEAR}`, { headers: STU_1003 })
+const nameMetaStudentAfterTeacher = (detailStudentAfterTeacher.body.data?.fieldMeta ?? []).find(
+  (field: Record<string, any>) => field.fieldCode === 'basic.name',
+)
+check(
+  '权限配置：姓名改为仅老师后，学生被拒、老师可写',
+  saveNameTeacher.status === 200 &&
+    stuSaveNameWhenTeacherOnly.status === 403 &&
+    stuSaveNameWhenTeacherOnly.body.code === 'EC-40301' &&
+    nameMetaStudentAfterTeacher?.editable === false &&
+    couSaveNameWhenTeacherOnly.status === 200,
+  `stu=${stuSaveNameWhenTeacherOnly.status}/${stuSaveNameWhenTeacherOnly.body.code} meta=${nameMetaStudentAfterTeacher?.editable} cou=${couSaveNameWhenTeacherOnly.status}`,
+)
+
+const saveAdminRole = await call('/admin/permissions/basic', json('PUT', ADMIN, {
+  fields: [{ fieldCode: 'basic.name', editableRoles: ['ADMIN'] }],
+}))
+const saveLockedField = await call('/admin/permissions/basic', json('PUT', ADMIN, {
+  fields: [{ fieldCode: 'basic.majorId', editableRoles: ['STU'] }],
+}))
+const adminContentSave = await call('/sections/basic/1003', json('PUT', ADMIN, {
+  academicYear: YEAR,
+  fields: { name: '管理员' },
+}))
+check(
+  '权限配置：管理员角色/系统字段不可配置，管理员不能改内容',
+  saveAdminRole.status === 400 &&
+    saveLockedField.status === 400 &&
+    adminContentSave.status === 403 &&
+    adminContentSave.body.code === 'EC-40303',
+  `adminRole=${saveAdminRole.status} locked=${saveLockedField.status} content=${adminContentSave.status}/${adminContentSave.body.code}`,
+)
+
+// 内部备注学生端不返回：可见性与可编辑性必须同口径，前端据此禁用「仅学生」选项
+const permMentorInternal = (permSections.find((section: Record<string, any>) => section.sectionCode === 'MENTOR')
+  ?.fields ?? []).find((field: Record<string, any>) => field.fieldCode === 'mentor.internalRemark')
+const saveInvisibleRole = await call('/admin/permissions/mentor', json('PUT', ADMIN, {
+  fields: [{ fieldCode: 'mentor.internalRemark', editableRoles: ['STU'] }],
+}))
+check(
+  '权限配置：对角色不可见的字段不能配成可编辑',
+  permMentorInternal?.studentVisible === false &&
+    permMentorInternal?.counselorVisible === true &&
+    permMentorInternal?.permissionMode === 'COU' &&
+    saveInvisibleRole.status === 400 &&
+    saveInvisibleRole.body.code === 'EC-40003',
+  `stuVisible=${permMentorInternal?.studentVisible} couVisible=${permMentorInternal?.counselorVisible} save=${saveInvisibleRole.status}/${saveInvisibleRole.body.code}`,
+)
+
+const resetBasic = await call('/admin/permissions/basic/reset', { method: 'POST', headers: ADMIN })
+const matrixAfterReset = await call('/admin/permissions', { headers: ADMIN })
+const nameAfterReset = (matrixAfterReset.body.data?.sections ?? [])
+  .find((section: Record<string, any>) => section.sectionCode === 'BASIC')
+  ?.fields.find((field: Record<string, any>) => field.fieldCode === 'basic.name')
+check(
+  '权限配置：恢复默认回到初始化口径',
+  resetBasic.status === 200 &&
+    resetBasic.body.data?.changed >= 1 &&
+    nameAfterReset?.editableRoles?.length === 0 &&
+    nameAfterReset?.permissionMode === 'NONE',
+  `changed=${resetBasic.body.data?.changed} roles=${JSON.stringify(nameAfterReset?.editableRoles)}`,
 )
 
 console.log(results.join('\n'))

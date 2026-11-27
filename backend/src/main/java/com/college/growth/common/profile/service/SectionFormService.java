@@ -6,6 +6,7 @@ import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.ProfileStatusEnum;
 import com.college.growth.common.enums.SectionCodeEnum;
+import com.college.growth.common.enums.UserRoleEnum;
 import com.college.growth.common.exception.BusinessException;
 import com.college.growth.common.field.FieldValues;
 import com.college.growth.common.field.entity.ArcFieldDef;
@@ -78,6 +79,7 @@ public class SectionFormService {
     public void save(Long studentId, String academicYear, SectionCodeEnum section, Map<String, Object> fields) {
         String year = AcademicYearUtils.resolve(academicYear);
         CurrentUser user = UserContext.get();
+        denyAdminContentEdit(user);
         classes.requireStudentScope(studentId, year, user);
         if (fields.isEmpty()) {
             throw new BusinessException(ResultCode.PARAM_MISSING, "没有需要保存的字段");
@@ -179,8 +181,20 @@ public class SectionFormService {
 
     private void requireOwner(Long studentId) {
         var user = UserContext.get();
+        denyAdminContentEdit(user);
         if (!user.isStudent() || !studentId.equals(user.userId())) {
             throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "仅学生本人可操作");
+        }
+    }
+
+    /**
+     * 管理员只配置权限，不写内容。板块一与学业/兴趣共用同一口径，
+     * 避免同是管理员在不同板块拿到不同错误码（这里与 BasicSectionServiceImpl 对齐）。
+     */
+    private void denyAdminContentEdit(CurrentUser user) {
+        if (user.role() == UserRoleEnum.ADMIN) {
+            throw new BusinessException(ResultCode.PERMISSION_DENIED,
+                    "管理员只负责配置字段权限，不能修改档案内容");
         }
     }
 

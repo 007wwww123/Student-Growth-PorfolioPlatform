@@ -48,8 +48,16 @@ public class ArcFieldDef {
     /** 可见角色，逗号分隔（不含管理员）。 */
     private String visibleRoles;
 
-    /** 可编辑角色，逗号分隔；空表示均不可直接填。 */
+    /** 可编辑角色，逗号分隔；空表示均不可直接填。管理员可在权限配置中修改。 */
     private String editableRoles;
+
+    /**
+     * 默认可编辑角色（初始化时的口径），用于权限配置页展示「已调整」与「恢复默认」。
+     *
+     * <p>由脚本 {@code 11_add_field_permission_columns.sql} 从 {@code editable_roles} 回填；
+     * 管理员保存只写 {@code editable_roles}，不改本列，因此默认值始终可追溯。</p>
+     */
+    private String defaultEditableRoles;
 
     /** 校验器标识。 */
     private String validator;

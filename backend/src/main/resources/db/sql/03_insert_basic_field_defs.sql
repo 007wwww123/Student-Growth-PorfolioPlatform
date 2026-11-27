@@ -54,7 +54,7 @@ ON DUPLICATE KEY UPDATE field_name     = VALUES(field_name),
                         required       = VALUES(required),
                         source         = VALUES(source),
                         visible_roles  = VALUES(visible_roles),
-                        editable_roles = VALUES(editable_roles),
+                        -- 可编辑角色由管理员在权限配置页维护，重跑种子不得覆盖
                         validator      = VALUES(validator),
                         rule_json      = VALUES(rule_json),
                         options_json   = VALUES(options_json),

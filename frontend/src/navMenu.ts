@@ -18,6 +18,7 @@ export type NavIconName =
   | 'briefcase'
   | 'chat'
   | 'review'
+  | 'settings'
 
 export interface NavItem {
   /** 稳定标识，仅用于 key */
@@ -101,6 +102,21 @@ const ARCHIVE_ITEM: NavItem = {
   matchNames: ['archive'],
 }
 
+/**
+ * 字段权限配置：仅管理员可见。
+ *
+ * <p>这是管理员模式的系统能力，不属于档案内容编辑，因此与六个板块菜单分开，
+ * 放在「系统管理」分组；学生与辅导员没有该项，路由守卫也会拦截。
+ * 标签写全「字段权限配置」，与页面标题一致，避免被误读成账号/菜单权限。</p>
+ */
+const PERMISSION_ITEM: NavItem = {
+  key: 'permissions',
+  label: '字段权限配置',
+  icon: 'settings',
+  to: '/admin/permissions',
+  matchNames: ['admin-permissions'],
+}
+
 /** 教师、管理员共用一类菜单：总览 + 六大模块 + 审核工作台。 */
 export function isStaff(role: UserRole | undefined): boolean {
   return role === 'COU' || role === 'ADMIN'
@@ -112,22 +128,38 @@ export function isStaff(role: UserRole | undefined): boolean {
  * <p>学生只有六大板块；教师与管理员多「总览」（数据可视化入口）与审核工作台。
  * 顶部栏不区分角色，因此不在这个模型里。</p>
  *
- * <p><b>口径（已与需求方确认，勿按"bug"改回）</b>：教师/管理员为 <b>8 项</b>
- * ——总览 + 六大模块 + 审核工作台。需求文案写的是「六大模块及总览」共 7 项，
- * 但删掉审核入口后辅导员没有任何可点路径进入 /review（页面仍在，只是摸不到），
- * 因此保留为第 8 项。若将来产品坚持 7 项，应同时给出另一个入口
+ * <p><b>口径（已与需求方确认，勿按"bug"改回）</b>：教师/管理员为 <b>总览 + 六大模块 + 审核工作台</b>
+ * ——需求文案写的是「六大模块及总览」共 7 项，但删掉审核入口后辅导员没有任何可点路径进入
+ * /review（页面仍在，只是摸不到），因此保留审核项。若将来产品坚持 7 项，应同时给出另一个入口
  * （例如挂到总览页），不要只删这一行。</p>
+ *
+ * <p>管理员在此之上多一项「权限配置」（字段级编辑权限），属于系统管理能力；
+ * 该页不含任何档案内容，管理员仍不能借它修改学生数据。</p>
+ *
+ * <p><b>管理员按「临时授权」而非「角色」收敛菜单</b>：管理员默认无业务数据权限
+ * （需求 2.1），无授权时看板与待审列表返回 EC-40302、板块详情只回空视图，
+ * 这些入口点进去必然被拒。因此只有持授权（{@code tempGrant}）时才出现
+ * 总览、六大板块与审核工作台；无授权时只留唯一可用的「字段权限配置」，
+ * 避免菜单里 9 项有 8 项是死路。</p>
  */
-export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
+export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavGroup[] {
+  if (role === 'ADMIN' && !tempGrant) {
+    // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM] }]
+  }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
       { key: 'overview', items: [OVERVIEW_ITEM] },
       { key: 'sections', title: '档案模块', items: SECTION_ITEMS },
       { key: 'review', title: '审核', items: [REVIEW_ITEM] },
     ]
-    // 档案管理只有辅导员有写权限；管理员保持 8 项不变（总览 + 六模块 + 审核）
+    // 档案管理只有辅导员有写权限；管理员保持只读，不出现建档/归档入口
     if (role === 'COU') {
       groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM] })
+    }
+    // 字段权限配置是管理员专属；辅导员不出现，路由守卫也会拦截
+    if (role === 'ADMIN') {
+      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM] })
     }
     return groups
   }

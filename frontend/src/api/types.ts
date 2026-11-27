@@ -385,3 +385,56 @@ export interface DashboardOverview {
   sections: SectionProgress[]
   classes: ClassProgress[]
 }
+
+/** 字段权限的四选一模式，与后端 PermissionConstants 一致。 */
+export type PermissionMode = 'NONE' | 'STU' | 'COU' | 'BOTH'
+
+/**
+ * 单个字段的编辑权限，对应后端 FieldPermissionVO。
+ *
+ * <p>`editableRoles` 是唯一事实，`permissionMode` 只是它的四选一投影；
+ * 前端提交时仍按角色数组提交，避免出现两套权限表达。</p>
+ */
+export interface FieldPermission {
+  fieldCode: string
+  fieldName: string
+  fieldType: string
+  /** 值来源：SIS / COU / STU / STU_CFM / SYS / IMP */
+  source?: string
+  required?: boolean
+  sensitive?: number
+  editableRoles: Array<'STU' | 'COU'>
+  defaultEditableRoles: Array<'STU' | 'COU'>
+  permissionMode: PermissionMode
+  /** 当前配置是否偏离初始化口径 */
+  customized: boolean
+  /** 学生是否可见该字段；不可见时不允许配置为「学生可编辑」 */
+  studentVisible?: boolean
+  /** 老师是否可见该字段；不可见时不允许配置为「老师可编辑」 */
+  counselorVisible?: boolean
+  /** 系统推导 / 系统生成 / 学籍唯一标识，固定只读，不可配置 */
+  locked: boolean
+  lockedReason?: string
+}
+
+/** 单个板块的字段权限清单及统计，对应后端 SectionPermissionVO。 */
+export interface SectionPermission {
+  sectionCode: string
+  sectionName: string
+  fields: FieldPermission[]
+  studentEditable: number
+  counselorEditable: number
+  readonly: number
+  customized: number
+}
+
+/** 六大板块权限矩阵，对应后端 PermissionMatrixVO。 */
+export interface PermissionMatrix {
+  sections: SectionPermission[]
+}
+
+/** 保存权限后的返回，对应后端 PermissionSaveResultVO。 */
+export interface PermissionSaveResult {
+  changed: number
+  section: SectionPermission
+}

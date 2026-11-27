@@ -202,6 +202,9 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     @Transactional(rollbackFor = Exception.class)
     public void save(Long studentId, BasicSectionSaveDTO dto) {
         CurrentUser user = UserContext.get();
+        // 管理员只配置字段权限，不参与内容编辑：即使持临时授权，也不能借保存接口改学生档案。
+        // 字段级 editable 位同样会把 ADMIN 判为不可写，这里提前拒绝是为了给出明确原因（EC-40303）。
+        denyAdminContentEdit(user);
         String year = AcademicYearUtils.resolve(dto.getAcademicYear());
         studentClassService.requireStudentScope(studentId, year, user);
         Map<String, Object> submitted = dto.getFields();
@@ -271,6 +274,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void submit(Long studentId, String academicYear) {
+        denyAdminContentEdit(UserContext.get());
         String year = AcademicYearUtils.resolve(academicYear);
         CurrentUser user = UserContext.get();
         if (!user.isStudent() || !studentId.equals(user.userId())) {
@@ -374,6 +378,8 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     @Transactional(rollbackFor = Exception.class)
     public int syncStudent(Long studentId, String academicYear) {
         CurrentUser user = UserContext.get();
+        // 同步会覆盖字段值，属于内容修改；管理员即使持临时授权也只能看，不能触发同步。
+        denyAdminContentEdit(user);
         String year = AcademicYearUtils.resolve(academicYear);
         // 与待确认区同一套数据范围：本班现任辅导员，或持临时授权的管理员。
         if (!studentClassService.isCounselorOf(studentId, year, user.userId()) && !user.isAdminWithGrant()) {
@@ -511,10 +517,24 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     }
 
     private boolean isEditable(ArcFieldDef def, CurrentUser user, String currentStatus) {
+        // 管理员只负责配置权限，不参与内容编辑；即使有人手工把 ADMIN 写进 editable_roles，
+        // 这里也必须拒绝，避免绕过权限配置页直接改档案。
+        if (user.role() == UserRoleEnum.ADMIN) {
+            return false;
+        }
         if (!def.isEnabled() || !isWritableStatus(currentStatus)) {
             return false;
         }
-        return containsRole(def.getEditableRoles(), user.role());
+        // 看不见的字段不允许写：权限配置可能被误设，保存侧必须与展示侧同口径。
+        return isVisible(def, user) && containsRole(def.getEditableRoles(), user.role());
+    }
+
+    /** 管理员调用内容写接口时给出明确业务码，而不是笼统的「字段由学校维护」。 */
+    private void denyAdminContentEdit(CurrentUser user) {
+        if (user.role() == UserRoleEnum.ADMIN) {
+            throw new BusinessException(ResultCode.PERMISSION_DENIED,
+                    "管理员只负责配置字段权限，不能修改档案内容");
+        }
     }
 
     private boolean isWritableStatus(String status) {

@@ -14,5 +14,10 @@ VALUES
     (1304, 'INTEREST', 'interest.ideal', '理想描述', 'TEXTAREA', 0, 'STU', 'STU,COU', 'STU', 'TEXT_LEN', '{"maxLen":300}', 40)
 ON DUPLICATE KEY UPDATE
     field_name = VALUES(field_name), field_type = VALUES(field_type), required = VALUES(required),
-    source = VALUES(source), visible_roles = VALUES(visible_roles), editable_roles = VALUES(editable_roles),
+    source = VALUES(source), visible_roles = VALUES(visible_roles),
     validator = VALUES(validator), rule_json = VALUES(rule_json), sort_no = VALUES(sort_no);
+
+-- 有意不更新 editable_roles：这一列是管理员在「字段权限配置」页保存的结果，
+-- 重跑种子脚本不应把它改回默认值（与 03 / 12 同一口径）。
+-- default_editable_roles 由 11 号的 ALTER 或 12 号末尾的回填补齐，本脚本不直接引用该列，
+-- 以保证在未升级的老库上也能单独执行。
