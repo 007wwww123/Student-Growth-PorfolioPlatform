@@ -40,7 +40,7 @@ info:
       "sectionCode": "BASIC",
       "sectionName": "基本信息",
       "status": "DRAFT",
-      "fields": { "name": "林清和", "studentNo": "2023010101" },
+      "fields": { "name": "李明", "studentNo": "2024010101" },
       "editable": true
     }
     ```
@@ -181,7 +181,7 @@ paths:
             schema:
               $ref: '#/components/schemas/LoginDTO'
             example:
-              username: '2023010101'
+              username: '2024010101'
               password: Passw0rd!
       responses:
         '200':
@@ -274,20 +274,20 @@ paths:
                       sectionName: 基本信息
                       status: DRAFT
                       fields:
-                        name: 林清和
-                        studentNo: '2023010101'
-                        gender: F
+                        name: 李明
+                        studentNo: '2024010101'
+                        gender: M
                         nation: 汉族
-                        idCard: 330106********0012
-                        nativePlace: 浙江 杭州
+                        idCard: 320102********1232
+                        nativePlace: 江苏 南京
                         dormNo: 3-412
                         classId: RJ2401
                         majorId: 软件工程
                         phone: 138****1234
-                        email: linqinghe@example.edu.cn
-                        emergencyContact: 林建国（父）
-                        emergencyPhone: '13900001234'
-                        photo: [10231]
+                        email: 1001@example.edu.cn
+                        emergencyContact: 李建国（父）
+                        emergencyPhone: '139****1234'
+                        photo: []
                         econLevel: NORMAL
                         familyStructure: ONLY_CHILD
                       fieldMeta:
@@ -322,7 +322,7 @@ paths:
                           pendingConfirm: true
                           pendingValue: 139****5678
                       editable: true
-                      completeness: 62.50
+                      completeness: 100.00
                       submitCount: 0
                       withdrawCount: 0
         '400':
@@ -342,12 +342,13 @@ paths:
         逐字段校验后写入，把板块保存为 `DRAFT`。
         仅 `DRAFT` / `RETURNED` 状态允许写入，其余状态返回 `EC-40902`。
 
-        请求体为 `{academicYear, fields}`：`fields` 的键是字段短名（如 `phone`），
+        BASIC 请求体为 `{academicYear, fields}`：`fields` 的键是字段短名（如 `phone`），
         值与字段类型对应。字段的类型、必填、枚举、校验规则、可编辑角色全部来自
         `arc_field_def`，接口不再逐个声明——所以新增字段不需要改契约。
 
         未出现的字段按「不修改」处理，传 `null` 表示清空（必填项清空后无法提交）。
-        `STU_CFM` 类字段由学生修改时进入待确认区，辅导员确认前仍返回旧值（BR-F06）。
+        学生首填、修改或清空 `STU_CFM` 字段均进入待确认区。fields 始终返回正式值；首填确认前为空。
+        使用 fieldMeta.pendingConfirm 区分无申请与申请清空；清空申请的候选值为空（BR-F06）。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
@@ -356,7 +357,7 @@ paths:
         content:
           application/json:
             schema:
-              oneOf:
+              anyOf:
                 - $ref: '#/components/schemas/BasicSectionSaveDTO'
                 - $ref: '#/components/schemas/AcademicSectionSaveDTO'
                 - $ref: '#/components/schemas/InterestSectionSaveDTO'
@@ -369,21 +370,25 @@ paths:
                 value:
                   academicYear: 2025-2026-1
                   fields:
-                    classId: RJ2401
                     phone: '13900005678'
-                    email: linqinghe@example.edu.cn
-                    emergencyContact: 林建国（父）
+                    email: 1001@example.edu.cn
+                    emergencyContact: 李建国（父）
                     emergencyPhone: '13900001234'
-                    photo: [10231]
-              academic:
-                summary: 学业发展（code=academic）
+              readonlyClass:
+                summary: 学生修改学籍班级（预期 403 / EC-40301）
                 value:
                   academicYear: 2025-2026-1
-                  goalShort: 本学期绩点进入专业前 15%
-                  goalLong: 争取保研，进入数据分析方向
-                  strongSubjects: [数据结构, 概率论]
-                  weakSubjects: [大学物理]
-                  abilityNote: 编程实现能力较强，理论推导需要加强。
+                  fields: {classId: RJ2402}
+              academic:
+                summary: 学业短期目标长度下界（20 字；该板块业务仍待实现）
+                value:
+                  academicYear: 2025-2026-1
+                  goalShort: 本学期完成全部实验课程并按时提交学习报告
+              academicTooShort:
+                summary: 学业短期目标不足下界（19 字，DTO 校验反例）
+                value:
+                  academicYear: 2025-2026-1
+                  goalShort: 本学期完成全部实验课程并按时提交学习报
       responses:
         '200':
           description: 保存成功，无业务数据
@@ -572,7 +577,7 @@ paths:
                             example: 身份证号
                           value:
                             type: string
-                            example: '330106200401010012'
+                            example: '320102200201011232'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -731,7 +736,8 @@ paths:
       description: |
         仅该班现任辅导员可操作（BR-S03），管理员与学生均返回 `EC-40302`。
         `SUBMITTED` 转 `APPROVED`，记录审核人与审核时间；状态不是 `SUBMITTED` 返回 `EC-40902`。
-        审核意见可空。
+        启用字段有待确认申请时返回 EC-40902。非推导必填字段缺少正式值时返回 EC-42202。
+        两种失败均保持 SUBMITTED，审核意见可空。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
@@ -754,9 +760,31 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: 请先确认或驳回：紧急联系电话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+              examples:
+                pendingField:
+                  value:
+                    code: EC-40902
+                    message: '请先确认或驳回：紧急联系电话'
+                    traceId: a1b2c3d4e5f60708
+                    timestamp: '2026-11-26T15:23:50+08:00'
         '422':
-          $ref: '#/components/responses/ValidationFailed'
+          description: 请退回补填：紧急联系电话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+              examples:
+                missingFormalValue:
+                  value:
+                    code: EC-42202
+                    message: '请退回补填：紧急联系电话'
+                    traceId: a1b2c3d4e5f60708
+                    timestamp: '2026-11-26T15:23:50+08:00'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1000,10 +1028,10 @@ components:
         username:
           type: string
           description: 登录名，学生为学号，教师为工号
-          example: '2023010101'
+          example: '2024010101'
         displayName:
           type: string
-          example: 林清和
+          example: 李明
         role:
           type: string
           description: 角色编码
@@ -1032,7 +1060,7 @@ components:
         username:
           type: string
           maxLength: 64
-          example: '2023010101'
+          example: '2024010101'
         password:
           type: string
           maxLength: 128
@@ -1175,7 +1203,7 @@ components:
           type: boolean
           description: 是否存在待辅导员确认的值（BR-F06）
         pendingValue:
-          description: 待确认值，已按角色脱敏
+          description: 待确认值，已按角色脱敏。pendingConfirm 为 true 且无候选值时表示申请清空。
           nullable: true
 
     FieldOption:
@@ -1238,12 +1266,10 @@ components:
             未出现的键按「不修改」处理；传 `null` 表示清空。
           additionalProperties: true
           example:
-            classId: RJ2401
             phone: '13900005678'
-            email: linqinghe@example.edu.cn
-            emergencyContact: 林建国（父）
+            email: 1001@example.edu.cn
+            emergencyContact: 李建国（父）
             emergencyPhone: '13900001234'
-            photo: [10231]
 
     AcademicSectionSaveDTO:
       type: object
@@ -1393,7 +1419,7 @@ components:
         studentName:
           type: string
           description: 学生姓名，取自 basic.name
-          example: 林清和
+          example: 李明
         classId:
           type: string
           description: 班级编码，取自 basic.classId
