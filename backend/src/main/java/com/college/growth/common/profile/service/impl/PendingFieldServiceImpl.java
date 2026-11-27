@@ -16,6 +16,7 @@ import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
 import com.college.growth.common.profile.service.PendingFieldService;
 import com.college.growth.common.profile.service.ProfileItemService;
+import com.college.growth.common.profile.service.ProfileCompletenessService;
 import com.college.growth.common.profile.service.ProfileLocator;
 import com.college.growth.common.profile.vo.PendingFieldVO;
 import com.college.growth.common.result.ResultCode;
@@ -64,18 +65,22 @@ public class PendingFieldServiceImpl implements PendingFieldService {
 
     private final AuditLogService auditLogService;
 
+    private final ProfileCompletenessService completenessService;
+
     public PendingFieldServiceImpl(ProfileLocator profileLocator,
                                    ProfileItemService itemService,
                                    FieldDefService fieldDefService,
                                    StudentClassService studentClassService,
                                    ChangeLogService changeLogService,
-                                   AuditLogService auditLogService) {
+                                   AuditLogService auditLogService,
+                                   ProfileCompletenessService completenessService) {
         this.profileLocator = profileLocator;
         this.itemService = itemService;
         this.fieldDefService = fieldDefService;
         this.studentClassService = studentClassService;
         this.changeLogService = changeLogService;
         this.auditLogService = auditLogService;
+        this.completenessService = completenessService;
     }
 
     @Override
@@ -97,6 +102,9 @@ public class PendingFieldServiceImpl implements PendingFieldService {
         ArcProfile profile = requireScopedProfile(studentId, sectionCode, year);
         ArcFieldDef def = requireFieldDef(sectionCode, fieldCode);
         ArcProfileItem item = requirePendingItem(profile, def, fieldCode);
+        if (item.getPendingText() == null && item.getPendingJson() == null) {
+            throw new BusinessException(ResultCode.STATE_CONFLICT, "历史申请缺少候选值，请重新填写后处理");
+        }
         Object pending = FieldValueCodec.readPending(def, item);
         Object current = FieldValueCodec.read(def, item);
 
@@ -113,6 +121,7 @@ public class PendingFieldServiceImpl implements PendingFieldService {
         item.setConfirmedAt(LocalDateTime.now());
         item.setUpdatedBy(user.userId());
         itemService.save(item);
+        completenessService.refresh(profile);
 
         String action = confirm ? ACTION_CONFIRM : ACTION_DISCARD;
         String note = (confirm ? "确认待确认值：" : "驳回待确认值：") + def.getFieldName();

@@ -393,8 +393,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     /**
      * 写入单个字段。
      *
-     * <p>STU_CFM 字段由学生修改时，若已有旧值则进待确认区（BR-F06）；旧值为空时直接落正式值并标记待确认，
-     * 否则「紧急联系电话」这类必填字段在辅导员确认前永远为空，提交必然失败。</p>
+     * <p>学生填写的待确认字段只写候选区，正式值由辅导员确认后更新。</p>
      */
     private void applyFieldSave(ArcProfile profile, ArcFieldDef def, Object value,
                                 Map<String, ArcProfileItem> items, CurrentUser user) {
@@ -410,17 +409,16 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         Object oldValue = FieldValueCodec.read(def, item);
         FieldSourceEnum source = FieldSourceEnum.fromCode(def.getSource());
         if (source.requiresConfirmation() && user.isStudent()) {
-            if (FieldValues.isEmpty(oldValue)) {
-                FieldValueCodec.write(item, def, value);
-                item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
-            } else if (FieldValueCodec.same(def, oldValue, value)) {
+            if (!item.hasPending() && FieldValueCodec.same(def, oldValue, value)) {
                 return;
-            } else {
-                FieldValueCodec.writePending(item, def, value);
-                item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
             }
+            FieldValueCodec.writePending(item, def, value);
+            item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
+            item.setConfirmedAt(null);
+            item.setConfirmedBy(null);
         } else {
             FieldValueCodec.write(item, def, value);
+            FieldValueCodec.clearPending(item);
             boolean confirmed = source.requiresConfirmation();
             item.setConfirmStatus(confirmed ? BasicConstants.CONFIRM_APPROVED : BasicConstants.CONFIRM_NONE);
             if (confirmed) {

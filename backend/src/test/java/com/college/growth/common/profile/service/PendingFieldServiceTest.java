@@ -81,13 +81,16 @@ class PendingFieldServiceTest {
     @Mock
     private SysAuditLogMapper auditLogMapper;
 
+    @Mock
+    private ProfileCompletenessService completenessService;
+
     private PendingFieldServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new PendingFieldServiceImpl(new ProfileLocator(profileMapper),
                 new ProfileItemService(itemMapper), fieldDefService, studentClassService,
-                new ChangeLogService(changeLogMapper), new AuditLogService(auditLogMapper));
+                new ChangeLogService(changeLogMapper), new AuditLogService(auditLogMapper), completenessService);
         UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
     }
 
@@ -124,6 +127,7 @@ class PendingFieldServiceTest {
         assertEquals("13800138000", item.getValueText());
         assertNull(item.getPendingText());
         assertEquals("REJECTED", item.getConfirmStatus());
+        verify(completenessService).refresh(any(ArcProfile.class));
         assertEquals(COUNSELOR_ID, item.getConfirmedBy());
     }
 
@@ -174,6 +178,29 @@ class PendingFieldServiceTest {
         PendingFieldVO vo = service.confirm(STUDENT_ID, "BASIC", FIELD_CODE, YEAR);
 
         assertEquals("139****9000", vo.getValue());
+    }
+
+    @Test
+    void firstFillCanBeRejectedWithoutPublishingIt() {
+        ArcProfileItem item = givenPendingItem(null, "13900139000");
+        when(studentClassService.isCounselorOf(STUDENT_ID, YEAR, COUNSELOR_ID)).thenReturn(true);
+        service.reject(STUDENT_ID, "BASIC", FIELD_CODE, YEAR);
+        assertNull(item.getValueText());
+        assertNull(item.getPendingText());
+    }
+
+    @Test
+    void explicitlyRequestedClearIsDistinguishableFromLegacyFirstFill() {
+        ArcProfileItem item = givenPendingItem("13800138000", null);
+        item.setConfirmStatus("PENDING");
+        when(studentClassService.isCounselorOf(STUDENT_ID, YEAR, COUNSELOR_ID)).thenReturn(true);
+        assertThrows(BusinessException.class, () -> service.confirm(STUDENT_ID, "BASIC", FIELD_CODE, YEAR));
+        assertEquals("13800138000", item.getValueText());
+        com.college.growth.common.profile.FieldValueCodec.writePending(item, phoneDef(), null);
+        service.confirm(STUDENT_ID, "BASIC", FIELD_CODE, YEAR);
+        assertNull(item.getValueText());
+        assertNull(item.getPendingJson());
+        assertEquals("APPROVED", item.getConfirmStatus());
     }
 
     // ------------------------------------------------------------------

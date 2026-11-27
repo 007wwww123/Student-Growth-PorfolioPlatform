@@ -64,6 +64,12 @@ public final class FieldValueCodec {
 
     /** 写入待确认值。 */
     public static void writePending(ArcProfileItem item, ArcFieldDef def, Object value) {
+        // JSON null identifies a deliberate clear; legacy first fills left both candidate columns SQL NULL.
+        if (value == null) {
+            item.setPendingText(null);
+            item.setPendingJson("null");
+            return;
+        }
         if (FieldTypeEnum.fromCode(def.getFieldType()).isJsonStored()) {
             item.setPendingJson(toJson(value));
             item.setPendingText(null);

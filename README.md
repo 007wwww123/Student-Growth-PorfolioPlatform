@@ -146,7 +146,7 @@ npm --prefix frontend run dev
 **只看前端**：跳过第 1、2 步，`cd frontend && npm install && npm run dev` 即可，默认 mock 不依赖后端。
 
 **首次启动前**要按 `01 → 09` 跑完 `backend/src/main/resources/db/sql/` 下的脚本，其中 `08`/`09` 建 `sys_user` 并写入演示账号；
-页面会先跳登录页，用 `2023010101` / `9001` / `9003`，密码统一 `Passw0rd!`（完整清单见 [backend/README.md](backend/README.md)）。
+页面会先跳登录页，用 `2024010101` / `cou9001` / `admin`，密码统一 `Passw0rd!`（完整清单见 [backend/README.md](backend/README.md)）。
 
 命令参数、配置项与排错按职责分别写在两个目录的 README 里，本文不重复。
 

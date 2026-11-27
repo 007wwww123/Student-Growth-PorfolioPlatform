@@ -289,7 +289,7 @@ onMounted(load)
 
       <div class="actions">
         <template v-if="canDecide">
-          <button type="button" class="btn btn--primary" @click="openDialog('approve')">
+          <button type="button" class="btn btn--primary" :disabled="pendingItems.length > 0" @click="openDialog('approve')">
             审核通过
           </button>
           <button type="button" class="btn btn--danger" @click="openDialog('reject')">

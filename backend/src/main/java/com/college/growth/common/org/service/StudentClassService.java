@@ -57,12 +57,17 @@ public class StudentClassService {
         if (TextUtils.isBlank(classValue)) {
             return null;
         }
-        return orgClassMapper.selectOne(Wrappers.<OrgClass>lambdaQuery()
+        OrgClass byCode = orgClassMapper.selectOne(Wrappers.<OrgClass>lambdaQuery()
                 .eq(OrgClass::getStatus, 1)
-                .and(wrapper -> wrapper.eq(OrgClass::getClassCode, classValue)
-                        .or()
-                        .eq(OrgClass::getClassName, classValue))
-                .last("limit 1"));
+                .eq(OrgClass::getClassCode, classValue));
+        if (byCode != null) {
+            return byCode;
+        }
+        var byName = orgClassMapper.selectList(Wrappers.<OrgClass>lambdaQuery()
+                .eq(OrgClass::getStatus, 1)
+                .eq(OrgClass::getClassName, classValue)
+                .last("limit 2"));
+        return byName.size() == 1 ? byName.get(0) : null;
     }
 
     /**
@@ -74,7 +79,7 @@ public class StudentClassService {
     public String findClassValue(Long studentId, String academicYear) {
         String fromMaster = studentMasterService.findClassCode(studentId);
         if (!TextUtils.isBlank(fromMaster)) {
-            return fromMaster;
+            return fromMaster.trim();
         }
         ArcProfile basic = profileMapper.selectOne(Wrappers.<ArcProfile>lambdaQuery()
                 .eq(ArcProfile::getStudentId, studentId)

@@ -232,11 +232,11 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 | 登录名 | 角色 | 说明 |
 |---|---|---|
-| `2023010101` | STU | 学生，关联 `studentId=1001` |
-| `2023010102` / `2023010201` | STU | 另两个班的学生 |
-| `9001` / `9002` | COU | 辅导员，各带一个班 |
-| `9003` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
-| `9004` | ADMIN | 无授权，用于验证 `EC-40302` |
+| `2024010101` | STU | 学生，关联 `studentId=1001` |
+| `2024010102` / `2024010201` / `2024010301` | STU | 用于同班、跨班测试的学生 |
+| `cou9001` / `cou9002` | COU | 前者负责两个软件班，后者负责电子班 |
+| `admin` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
+| `admin0` | ADMIN | 无授权，用于验证 `EC-40302` |
 
 令牌默认 8 小时有效，可通过 `JWT_TTL_HOURS` 调整；签名密钥取 `JWT_SECRET`，**生产必须覆盖**，
 `application.yml` 里的默认值仅供本地联调。密码摘要算法与迭代次数变更后老账号需重置密码（无平滑迁移）。
@@ -339,6 +339,8 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 | `VALUES()` 弃用 | 种子里 `ON DUPLICATE KEY UPDATE col = VALUES(col)` 在 MySQL 8.0.20+ 会告警（未来版本将移除），当前不影响执行；升级到移除该语法的版本前需改为 `AS new` 别名写法。 |
 | 实测版本 | 已在 MySQL 9.7.0 上跑通全部脚本与接口；`docker-compose.yml` 指定的是 8.0.32，两者均兼容。 |
 
+开发种子仅在专用测试库装载。重跑 09 会重置示例账号密码；生产升级单独执行结构脚本。初始化后可运行 [基础数据核对 SQL](src/test/resources/db/check_basic_data.sql)，检查账号归属、在读班级、审核人、字段归属、状态和 JSON，各项预期为零。
+
 ## 八、启动与测试
 
 ### IntelliJ IDEA
@@ -380,7 +382,7 @@ curl $BASE/actuator/health
 login() { curl -s -X POST $BASE/auth/login -H "Content-Type: application/json" \
   -d "{\"username\":\"$1\",\"password\":\"Passw0rd!\"}" \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'; }
-STU=$(login 2023010101); COU=$(login 9001); ADMIN0=$(login 9004)
+STU=$(login 2024010101); COU=$(login cou9001); ADMIN0=$(login admin0)
 echo "令牌长度 ${#STU}"
 
 # 2) 当前登录用户：刷新页面后前端靠它恢复登录态

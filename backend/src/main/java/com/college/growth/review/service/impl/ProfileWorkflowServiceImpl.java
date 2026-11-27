@@ -129,6 +129,7 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
             throw new BusinessException(ResultCode.STATE_CONFLICT,
                     "当前状态为「" + from.getLabel() + "」，只有已提交的板块可以审核");
         }
+        completenessService.requireReviewReady(profile);
         String note = normalizeComment(comment);
 
         CurrentUser user = UserContext.get();
