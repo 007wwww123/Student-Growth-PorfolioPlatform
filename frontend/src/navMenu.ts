@@ -83,6 +83,12 @@ export function isStaff(role: UserRole | undefined): boolean {
  *
  * <p>学生只有六大板块；教师与管理员多「总览」（数据可视化入口）与审核工作台。
  * 顶部栏不区分角色，因此不在这个模型里。</p>
+ *
+ * <p><b>口径（已与需求方确认，勿按"bug"改回）</b>：教师/管理员为 <b>8 项</b>
+ * ——总览 + 六大模块 + 审核工作台。需求文案写的是「六大模块及总览」共 7 项，
+ * 但删掉审核入口后辅导员没有任何可点路径进入 /review（页面仍在，只是摸不到），
+ * 因此保留为第 8 项。若将来产品坚持 7 项，应同时给出另一个入口
+ * （例如挂到总览页），不要只删这一行。</p>
  */
 export function navGroupsOf(role: UserRole | undefined): NavGroup[] {
   if (isStaff(role)) {
