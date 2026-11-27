@@ -21,7 +21,7 @@ import type { FieldPermission, PermissionMatrix, PermissionMode, SectionPermissi
  *
  * <p><b>为什么还留一个「全部板块」只读视图</b>：权限本身是全局的（一行
  * `editable_roles` 管六个板块），但保存事务是<b>板块级</b>的。所以配置仍按板块保存，
- * 另给一屏总览用于核对「51 个字段现在谁能改」——这是把配置拆到六个独立页面后
+ * 另给一屏总览用于核对「全部字段现在谁能改」——这是把配置拆到六个独立页面后
  * 拿不回来的能力。总览只读，不放保存按钮，避免跨板块多次提交产生半成功状态。</p>
  */
 
@@ -312,7 +312,7 @@ function switchSection(sectionCode: string): void {
   void router.replace({ query: { ...route.query, section: sectionCode.toLowerCase() } })
 }
 
-/** 全部板块总览：一屏看全 51 个字段的权限，只读，不动草稿。 */
+/** 全部板块总览：一屏看全全部字段的权限，只读，不动草稿。 */
 function showAll(): void {
   viewMode.value = 'all'
   notice.value = ''

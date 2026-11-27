@@ -311,9 +311,26 @@ class ProfileWorkflowServiceTest {
     }
 
     /** 一个必填、非推导字段，用于验证完成度口径。 */
+    @Test
+    void approvalRequiresConfirmedRequiredValue() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
+        when(studentClassService.isCounselorOf(STUDENT_ID, YEAR, COUNSELOR_ID)).thenReturn(true);
+        var item = filledItem();
+        item.setConfirmStatus("PENDING");
+        when(fieldDefService.listActive(anyString())).thenReturn(List.of(requiredDef()));
+        when(itemMapper.selectList(any())).thenReturn(List.of(item));
+        assertEquals(ResultCode.STATE_CONFLICT, assertThrows(BusinessException.class,
+                () -> workflow.approve(profile(ProfileStatusEnum.SUBMITTED), null)).getResultCode());
+        item.setConfirmStatus("REJECTED");
+        item.setValueText(null);
+        assertEquals(ResultCode.REQUIRED_FIELD_MISSING, assertThrows(BusinessException.class,
+                () -> workflow.approve(profile(ProfileStatusEnum.SUBMITTED), null)).getResultCode());
+    }
+
     private ArcFieldDef requiredDef() {
         ArcFieldDef def = new ArcFieldDef();
         def.setFieldCode("basic.emergencyPhone");
+        def.setFieldType("TEXT");
         def.setSectionCode("BASIC");
         def.setRequired(1);
         def.setStatus(1);

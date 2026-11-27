@@ -2,6 +2,7 @@ package com.college.growth.basic.vo;
 
 import com.college.growth.common.field.FieldOption;
 import java.util.List;
+import com.college.growth.common.field.entity.ArcFieldDef;
 import lombok.Data;
 
 /**
@@ -12,6 +13,22 @@ import lombok.Data;
  */
 @Data
 public class FieldMetaVO {
+
+    public static FieldMetaVO from(ArcFieldDef def, boolean editable, boolean masked) {
+        FieldMetaVO meta = new FieldMetaVO();
+        meta.setKey(def.getFieldCode().substring(def.getFieldCode().indexOf('.') + 1));
+        meta.setFieldCode(def.getFieldCode());
+        meta.setFieldName(def.getFieldName());
+        meta.setFieldType(def.getFieldType());
+        meta.setRequired(def.isRequired());
+        meta.setSource(def.getSource());
+        List<FieldOption> options = FieldOption.parse(def.getOptionsJson());
+        meta.setOptions(options.isEmpty() ? null : options);
+        meta.setSensitive(def.getSensitiveLevel());
+        meta.setEditable(editable);
+        meta.setMasked(masked);
+        return meta;
+    }
 
     /** 字段短名，与 {@link BasicSectionVO#getFields()} 的键一致。 */
     private String key;

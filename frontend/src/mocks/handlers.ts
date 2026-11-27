@@ -311,6 +311,7 @@ export const handlers = [
             fieldKeyOf(params.fieldCode as string),
             'confirm',
             who.role,
+            who.userId,
           ),
         ),
       )
@@ -335,6 +336,7 @@ export const handlers = [
           fieldKeyOf(params.fieldCode as string),
           'reject',
           who.role,
+          who.userId,
         )
         return ok()
       })

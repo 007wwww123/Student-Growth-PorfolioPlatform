@@ -54,7 +54,7 @@ public class ArcFieldDef {
     /**
      * 默认可编辑角色（初始化时的口径），用于权限配置页展示「已调整」与「恢复默认」。
      *
-     * <p>由脚本 {@code 10_add_field_permission_columns.sql} 从 {@code editable_roles} 回填；
+     * <p>由脚本 {@code 11_add_field_permission_columns.sql} 从 {@code editable_roles} 回填；
      * 管理员保存只写 {@code editable_roles}，不改本列，因此默认值始终可追溯。</p>
      */
     private String defaultEditableRoles;

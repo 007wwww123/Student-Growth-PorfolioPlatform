@@ -229,8 +229,8 @@ class BasicSectionServiceTest {
     }
 
     @Test
-    @DisplayName("保存：STU_CFM 首填直接落正式值并标记待确认")
-    void firstFillOfConfirmableFieldIsWrittenDirectly() {
+    @DisplayName("保存：STU_CFM 首填进入候选区并标记待确认")
+    void firstFillOfConfirmableFieldIsPending() {
         ArcFieldDef phone = confirmableDef("basic.emergencyPhone", "紧急联系电话", "EMERGENCY_TEL");
         when(fieldDefService.listActive(BasicConstants.SECTION_CODE)).thenReturn(List.of(phone));
         when(profileMapper.selectOne(any())).thenReturn(profile(ProfileStatusEnum.DRAFT));
@@ -240,7 +240,7 @@ class BasicSectionServiceTest {
         service.save(STUDENT_ID, dto(Map.of("emergencyPhone", "13800138000")));
 
         verify(itemMapper).insert(org.mockito.ArgumentMatchers.<ArcProfileItem>argThat(item ->
-                "13800138000".equals(item.getValueText())
+                item.getValueText() == null && "13800138000".equals(item.getPendingText())
                         && BasicConstants.CONFIRM_PENDING.equals(item.getConfirmStatus())));
         verify(changeLogMapper).insert(any(ArcChangeLog.class));
     }

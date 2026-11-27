@@ -57,7 +57,7 @@ frontend/
 ├── public/
 │   └── mockServiceWorker.js   # MSW 拦截脚本，由 npx msw init 生成，随仓库提交
 ├── scripts/
-│   ├── smoke-mock.mts         # mock 冒烟测试（62 项断言，含鉴权与权限配置）
+│   ├── smoke-mock.mts         # mock 冒烟测试（71 项断言，含鉴权与权限配置）
 │   └── check-nav.mts          # 菜单口径回归（5 项断言，按角色与临时授权）
 ├── src/
 │   ├── api/
@@ -197,7 +197,7 @@ HomeView.vue / SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue / En
 | `npm run build` | `vue-tsc --noEmit` 类型检查 + Vite 生产构建，产物在 `dist/` |
 | `npm run type-check` | 仅类型检查，不构建 |
 | `npm run preview` | 本地预览 `dist/` 产物 |
-| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构、权限与状态机（62 项断言） |
+| `npm run smoke:mock` | 用 `msw/node` 复跑 mock handlers，校验响应结构、权限与状态机（71 项断言） |
 | `npm run check:nav` | 菜单口径回归：四类角色的可见项、管理员按 `tempGrant` 收敛、菜单路径唯一（5 项断言） |
 
 改动 `src/mocks/` 或 `src/api/types.ts` 后建议跑一次 `smoke:mock`，能挡住大部分契约漂移。
@@ -230,12 +230,12 @@ mock 覆盖：登录 / 当前用户 / 登出与未登录拦截，六板块详情
 
 | 登录名 | 角色 | 用途 |
 |---|---|---|
-| `2023010101` | 学生 | 填写、提交、撤回本人板块（`studentId=1001`） |
-| `2023010102` / `2023010201` | 学生 | 另两个班的学生 |
-| `9001` | 辅导员 | 软件 2401/2402 的待审与审核 |
-| `9002` | 辅导员 | 电子 2401，用来验证跨班 403 与空列表 |
-| `9003` | 管理员 | 持临时授权，只读查看 |
-| `9004` | 管理员 | 无授权，验证 `EC-40302` |
+| `2024010101` | 学生 | 填写、提交、撤回本人板块（`studentId=1001`） |
+| `2024010102` / `2024010201` | 学生 | 用于班级范围测试的学生 |
+| `cou9001` | 辅导员 | 软件 2401/2402 的待审与审核 |
+| `cou9002` | 辅导员 | 电子 2401，用来验证跨班 403 与空列表 |
+| `admin` | 管理员 | 持临时授权，只读查看 |
+| `admin0` | 管理员 | 无授权，验证 `EC-40302` |
 
 密码统一 `Passw0rd!`，登录页提供一键填入。清单在 `src/auth/accounts.ts`，与后端
 `09_insert_user_seed.sql` 保持一致；**演示账号只用于本地联调，上线前必须删除**。

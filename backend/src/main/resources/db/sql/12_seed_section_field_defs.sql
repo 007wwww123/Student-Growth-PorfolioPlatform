@@ -1,10 +1,14 @@
 -- =====================================================================
--- 脚本 11：补齐板块二至板块六的字段定义（权限配置覆盖六大板块的前提）
+-- 脚本 12：补齐板块四至板块六的字段定义（权限配置覆盖六大板块的前提）
 --
--- 依据：《一期建设总流程与可执行方案》（V1.0 版）4.3–4.7 字段清单
--- 数量自检：ACADEMIC 8 / INTEREST 4 / LIFE 12 / CAREER 5 / MENTOR 6，合计 35；
---           加上板块一 16 个，六板块共 51 个主表字段，与文档 4.11 一致。
--- 前置：必须先执行 10_add_field_permission_columns.sql（本脚本写入 default_editable_roles）。
+-- 板块二/三（学业发展、兴趣特长）已由 10_insert_academic_interest_field_defs.sql 定义，
+-- 本脚本不再重复写，否则会覆盖那边的字段类型与校验器
+-- （例如 strongSubjects 的 MULTI_SELECT 必须配 STRING_LIST，覆盖成 TEXT_LEN 会让保存直接报类型错误）。
+--
+-- 依据：《一期建设总流程与可执行方案》（V1.0 版）4.5–4.7 字段清单
+-- 数量自检：LIFE 12 / CAREER 5 / MENTOR 6，合计 23；
+--           加上板块一 16、板块二 5、板块三 4，六板块共 48 个主表字段。
+-- 前置：必须先执行 11_add_field_permission_columns.sql（本脚本写入 default_editable_roles）。
 -- 幂等：字段已存在时只更新元数据，**不覆盖 editable_roles**，
 --       否则重跑脚本会把管理员配置的权限悄悄改回默认值。
 -- =====================================================================
@@ -13,34 +17,6 @@ INSERT INTO arc_field_def (id, section_code, field_code, field_name, field_type,
                            visible_roles, editable_roles, default_editable_roles, validator, rule_json,
                            options_json, sensitive_level, sort_no, status, remark)
 VALUES
--- 板块二 学业发展（ACADEMIC）
-(1201, 'ACADEMIC', 'academic.goalShort', '短期学业目标', 'TEXTAREA', 1, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"minLen":20,"maxLen":200}', NULL, 0, 10, 1, '20–200 字'),
-(1202, 'ACADEMIC', 'academic.goalLong', '长期发展目标', 'TEXTAREA', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"minLen":20,"maxLen":300}', NULL, 0, 20, 1, '20–300 字'),
-(1203, 'ACADEMIC', 'academic.strongSubjects', '优势科目', 'MULTI_SELECT', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":128}', NULL, 0, 30, 1, '最多 3 项，命中课程字典'),
-(1204, 'ACADEMIC', 'academic.weakSubjects', '待提升科目', 'MULTI_SELECT', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":128}', NULL, 0, 40, 1, '与优势科目不得重复'),
-(1205, 'ACADEMIC', 'academic.rankMatrix', '成绩轨迹', 'RANK_MATRIX', 0, 'IMP', 'STU,COU', '', '',
- 'TEXT_LEN', NULL, NULL, 0, 50, 1, '子表 arc_rank；成绩数据只读，学生不可编辑'),
-(1206, 'ACADEMIC', 'academic.abilityNote', '学科能力认定', 'TEXTAREA', 0, 'COU', 'STU,COU', 'COU', 'COU',
- 'TEXT_LEN', '{"maxLen":300}', NULL, 0, 60, 1, '辅导员维护，学生只读'),
-(1207, 'ACADEMIC', 'academic.certificates', '证书技能', 'RANK_MATRIX', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', NULL, NULL, 0, 70, 1, '子表 arc_certificate 入口'),
-(1208, 'ACADEMIC', 'academic.events', '竞赛科研记录', 'RANK_MATRIX', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', NULL, NULL, 0, 80, 1, '子表 arc_event 入口'),
-
--- 板块三 兴趣特长（INTEREST）
-(1301, 'INTEREST', 'interest.hobbies', '兴趣爱好', 'MULTI_SELECT', 1, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":128}', NULL, 0, 10, 1, '1–5 项，选「其他」时必须填写描述'),
-(1302, 'INTEREST', 'interest.hobbyDesc', '兴趣描述', 'TEXTAREA', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":300}', NULL, 0, 20, 1, NULL),
-(1303, 'INTEREST', 'interest.skills', '技能特长', 'TEXTAREA', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":300}', NULL, 0, 30, 1, NULL),
-(1304, 'INTEREST', 'interest.ideal', '理想描述', 'TEXTAREA', 0, 'STU', 'STU,COU', 'STU', 'STU',
- 'TEXT_LEN', '{"maxLen":300}', NULL, 0, 40, 1, NULL),
-
 -- 板块四 生活心理（LIFE）
 (1401, 'LIFE', 'life.orgRole', '社团/学生工作职务', 'TEXT', 0, 'STU', 'STU,COU', 'STU', 'STU',
  'TEXT_LEN', '{"maxLen":64}', NULL, 0, 10, 1, '无职务填「无」'),
@@ -118,7 +94,12 @@ ON DUPLICATE KEY UPDATE
                                 VALUES(default_editable_roles), default_editable_roles),
     updated_at           = CURRENT_TIMESTAMP;
 
--- 自检：六板块字段数应为 16 / 8 / 4 / 12 / 5 / 6，合计 51
+-- 兜底回填：10 号脚本与 11 号的 ALTER 谁先执行都无所谓，这里统一补默认口径。
+UPDATE arc_field_def
+SET default_editable_roles = editable_roles
+WHERE default_editable_roles IS NULL;
+
+-- 自检：六板块字段数应为 16 / 5 / 4 / 12 / 5 / 6，合计 48
 SELECT section_code, COUNT(*) AS fields, SUM(required = 1) AS required_fields
 FROM arc_field_def
 WHERE status = 1

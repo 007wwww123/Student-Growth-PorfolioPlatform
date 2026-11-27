@@ -7,13 +7,29 @@
   班级取值的优先级与 StudentClassService 保持一致，避免「列表查得到、点进去无权审」：
     1) 学生主数据 stu_student.class_code（首选）；
     2) 基本信息板块 basic.classId 字段值（主数据接入前的存量档案回退）。
-  两段 EXISTS 都用 COALESCE 表达这个优先级；历史档案补齐后删掉回退分支即可。
+  只对需要班级范围的查询解析班级。
 -->
 <mapper namespace="com.college.growth.review.mapper.ReviewTaskMapper">
+
+    <sql id="activeClassId">
+        COALESCE(
+                (SELECT id FROM org_class WHERE status = 1 AND class_code = ${classValue}),
+                (SELECT MIN(id) FROM org_class WHERE status = 1 AND class_name = ${classValue} HAVING COUNT(*) = 1)
+            )
+    </sql>
 
     <select id="selectTaskPage" resultType="com.college.growth.common.profile.entity.ArcProfile">
         SELECT p.*
         FROM arc_profile p
+        <if test="counselorId != null or (classId != null and classId != '')">
+            LEFT JOIN stu_student s ON s.id = p.student_id
+            LEFT JOIN arc_profile bp ON bp.student_id = p.student_id
+                AND bp.academic_year = p.academic_year AND bp.section_code = 'BASIC'
+            LEFT JOIN arc_profile_item ci ON ci.profile_id = bp.id AND ci.field_code = 'basic.classId'
+            JOIN org_class c ON c.id = <include refid="activeClassId">
+                <property name="classValue" value="COALESCE(NULLIF(TRIM(s.class_code), ''), ci.value_text)"/>
+            </include>
+        </if>
         WHERE 1 = 1
         <if test="sectionCode != null and sectionCode != ''">
             AND p.section_code = #{sectionCode}
@@ -25,49 +41,50 @@
             AND p.academic_year = #{academicYear}
         </if>
         <if test="classId != null and classId != ''">
-            AND EXISTS (
-                SELECT 1
-                FROM arc_profile bp
-                LEFT JOIN arc_profile_item ci ON ci.profile_id = bp.id AND ci.field_code = 'basic.classId'
-                LEFT JOIN stu_student s ON s.id = bp.student_id
-                WHERE bp.student_id = p.student_id
-                  AND bp.academic_year = p.academic_year
-                  AND bp.section_code = 'BASIC'
-                  AND COALESCE(NULLIF(s.class_code, ''), ci.value_text) = #{classId}
-            )
+            AND c.class_code = #{classId}
         </if>
         <if test="counselorId != null">
-            AND EXISTS (
-                SELECT 1
-                FROM arc_profile bp
-                LEFT JOIN arc_profile_item ci ON ci.profile_id = bp.id AND ci.field_code = 'basic.classId'
-                LEFT JOIN stu_student s ON s.id = bp.student_id
-                JOIN org_class c ON c.class_code = COALESCE(NULLIF(s.class_code, ''), ci.value_text)
-                WHERE bp.student_id = p.student_id
-                  AND bp.academic_year = p.academic_year
-                  AND bp.section_code = 'BASIC'
-                  AND c.counselor_user_id = #{counselorId}
-            )
+            AND c.counselor_user_id = #{counselorId}
         </if>
         ORDER BY p.submitted_at DESC, p.id DESC
     </select>
 
     <select id="selectStudentFields" resultType="com.college.growth.review.mapper.StudentFieldRow">
-        SELECT bp.student_id AS studentId,
-               ci.field_code AS fieldCode,
-               ci.value_text AS valueText
-        FROM arc_profile bp
-        JOIN arc_profile_item ci ON ci.profile_id = bp.id
-        WHERE bp.section_code = 'BASIC'
-          AND bp.academic_year = #{academicYear}
-          AND bp.student_id IN
-        <foreach collection="studentIds" item="studentId" open="(" separator="," close=")">
-            #{studentId}
-        </foreach>
-          AND ci.field_code IN
-        <foreach collection="fieldCodes" item="fieldCode" open="(" separator="," close=")">
-            #{fieldCode}
-        </foreach>
+        SELECT flds.studentId, flds.fieldCode,
+               CASE WHEN flds.fieldCode = 'basic.classId' THEN c.class_code ELSE flds.valueText END AS valueText
+        FROM (
+            SELECT bp.student_id AS studentId,
+                   ci.field_code AS fieldCode,
+                   ci.value_text AS valueText
+            FROM arc_profile bp
+            JOIN arc_profile_item ci ON ci.profile_id = bp.id
+            LEFT JOIN stu_student s ON s.id = bp.student_id
+            WHERE bp.section_code = 'BASIC'
+              AND bp.academic_year = #{academicYear}
+              AND bp.student_id IN
+            <foreach collection="studentIds" item="studentId" open="(" separator="," close=")">
+                #{studentId}
+            </foreach>
+              AND ((ci.field_code = 'basic.name' AND NULLIF(TRIM(s.name), '') IS NULL)
+                OR (ci.field_code = 'basic.classId' AND NULLIF(TRIM(s.class_code), '') IS NULL))
+              AND ci.field_code IN
+            <foreach collection="fieldCodes" item="fieldCode" open="(" separator="," close=")">
+                #{fieldCode}
+            </foreach>
+            UNION ALL
+            SELECT s.id AS studentId, f.code AS fieldCode,
+                CASE f.code WHEN 'basic.name' THEN s.name ELSE TRIM(s.class_code) END AS valueText
+            FROM stu_student s
+            CROSS JOIN (SELECT 'basic.name' AS code UNION ALL SELECT 'basic.classId') f
+            WHERE s.id IN
+            <foreach collection="studentIds" item="studentId" open="(" separator="," close=")">#{studentId}</foreach>
+              AND f.code IN
+            <foreach collection="fieldCodes" item="fieldCode" open="(" separator="," close=")">#{fieldCode}</foreach>
+              AND NULLIF(TRIM(CASE f.code WHEN 'basic.name' THEN s.name ELSE s.class_code END), '') IS NOT NULL
+        ) flds
+        LEFT JOIN org_class c ON flds.fieldCode = 'basic.classId' AND c.id = <include refid="activeClassId">
+            <property name="classValue" value="flds.valueText"/>
+        </include>
     </select>
 
 </mapper>

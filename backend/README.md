@@ -68,7 +68,7 @@ backend/
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 11 顺序执行
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 12 顺序执行
 │   │       └── mapper/
 │   │           ├── review/                       # 待审列表 SQL
 │   │           └── dashboard/                     # 看板聚合 SQL（两条分组查询）
@@ -94,7 +94,7 @@ backend/
 | `exception/` | `<Name>SectionException` | 板块业务异常 |
 | `mapper/` | `<Name>ProfileMapper` | MyBatis-Plus 数据访问 |
 | `service/` | `<Name>SectionService` | 板块对外唯一入口 |
-| `service/impl/` | `<Name>SectionServiceImpl` | 业务实现（当前为占位） |
+| `service/impl/` | `<Name>SectionServiceImpl` | 板块业务实现 |
 | `util/` | `<Name>SectionUtils` | 板块内纯函数 |
 | `vo/` | `<Name>SectionVO` | 板块详情视图 |
 
@@ -220,8 +220,10 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 |---|---|---|
 | GET | `/api/dashboard/overview?academicYear=&classCode=` | 本学年进度聚合：学生数、完成数、待审量、六板块状态分布、班级完成率 |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用；看板 1 个接口可用；字段权限配置 3 个接口可用**；
-> 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
+> **当前状态：板块一（basic）与板块二/三（academic/interest）后端闭环；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用；看板 1 个接口可用；字段权限配置 3 个接口可用**；
+> 基本信息支持字段确认、明文查看和学籍同步；学业发展、兴趣特长支持详情、草稿保存、提交审核及学生撤回，
+> 保存请求体直接使用字段短名（如 `goalShort`、`hobbies`），学科能力认定 `abilityNote` 由本班辅导员维护；
+> 生活心理、职业规划、导师寄语 Service 仍为占位，返回 `501 / EC-50000`（字段定义已就位，权限可配）。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
 ### 公共审核模块（`com.college.growth.review`）
@@ -323,7 +325,7 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 5. **可见性与可编辑性同口径**：字段对该角色不可见（如仅辅导员可见的 `mentor.internalRemark`）
    不允许配成该角色可编辑，返回 `EC-40003`；板块保存侧也按「可见 且 可编辑」判定，
    避免出现「能写但列表里看不到」的脏写。
-6. **覆盖六板块的字段来源**：`03` 写入板块一 16 个字段，`11` 补齐板块二至六共 35 个字段，六板块合计 51 个主表字段。
+6. **覆盖六板块的字段来源**：`03` 写入板块一 16 个字段，`10` 写入板块二/三共 9 个字段、`12` 补齐板块四至六共 23 个字段，六板块合计 48 个主表字段。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 
@@ -413,7 +415,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，十一个文件按文件名前缀数字 **01 → 11** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，十二个文件按文件名前缀数字 **01 → 12** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -434,12 +436,14 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/08_create_user_table.sql
 # 09 账号种子（7 个演示账号 + 1 个无授权管理员，密码统一 Passw0rd!）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/09_insert_user_seed.sql
-# 10 字段权限：增加 default_editable_roles（默认口径），并从 editable_roles 回填
-mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/10_add_field_permission_columns.sql
-# 11 板块二至六共 35 个字段定义（权限配置覆盖六大板块的前提）
-mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/11_seed_section_field_defs.sql
+# 10 学业发展与兴趣特长字段定义（5 + 4 个）；已执行过 01–09 的库可单独执行本脚本
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/10_insert_academic_interest_field_defs.sql
+# 11 字段权限：增加 default_editable_roles（默认口径），并从 editable_roles 回填
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/11_add_field_permission_columns.sql
+# 12 板块四至六共 23 个字段定义（生活心理 12 / 职业规划 5 / 导师寄语 6）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/12_seed_section_field_defs.sql
 
-# 自检：板块一应为 16 字段 / 8 必填、SIS 映射 7；六板块合计 51；students=4、users=8
+# 自检：六板块应为 16 / 5 / 4 / 12 / 5 / 6，合计 48 个字段；SIS 映射 7；students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
   "select section_code, count(*) fields, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where status=1 group by section_code;
    select count(*) students from stu_student;
@@ -448,8 +452,14 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 
 > **存量库升级**：老库没有 `arc_field_def.source_field` 列，先跑 `05`（先 ALTER 再回填，可重复执行），
 > 再跑 `06`/`07`。`03` 不涉及这一列，无需重跑；`01` 只对全新库生效（`CREATE TABLE IF NOT EXISTS`）。
-> 权限配置上线后，`03`/`11` 重跑只更新字段元数据，**不会覆盖** `editable_roles`，避免把管理员配置改回默认；
-> 新增列 `default_editable_roles` 必须先执行 `10`，`11` 依赖该列。
+> 权限配置上线后，`03` / `10` / `12` 重跑只更新字段元数据，**不会覆盖** `editable_roles`，避免把管理员配置改回默认；
+> 脚本分工：`10` 只负责板块二/三，`12` 只负责板块四至六，两边不重叠——否则 `12` 会把
+> `strongSubjects` 的 `STRING_LIST` 校验器覆盖成 `TEXT_LEN`，学业保存会直接报字段值类型错误。
+> 新增列 `default_editable_roles` 由 `11` 的 ALTER 建立，`12` 末尾再做一次 NULL 兜底回填。
+> **踩过的坑**：权限配置分支早期版本曾用一个脚本写入 8 个学业字段（id 1201–1208），与 `10` 的
+> id 1201–1205 撞号；在那种库上直接跑 `10` 会因主键冲突把「成绩轨迹」那行改成「学科能力认定」。
+> 若库是老版本，先 `DELETE FROM arc_field_def WHERE field_code LIKE 'academic.%';`（这些行没有内容依赖）
+> 再按 `10 → 11 → 12` 执行。
 
 > 学生主数据的值与档案的关系：`stu_student` 是权威副本，`StudentSyncService` 在**建档、保存、提交**时
 > 把 SIS 字段物化进 `arc_profile_item`（只补空值，不覆盖已有值）。学工系统改正数据后用
@@ -459,7 +469,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 11` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 12` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 
@@ -468,6 +478,8 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 | `SENSITIVE` 保留字 | 自 MySQL 9.0 起 `SENSITIVE` 是保留字（8.0 不是）。字段定义的敏感级别列已改名 `sensitive_level`，**不要改回 `sensitive`**，否则建表与 MyBatis-Plus 生成的 SQL 都会报 1064。 |
 | `VALUES()` 弃用 | 种子里 `ON DUPLICATE KEY UPDATE col = VALUES(col)` 在 MySQL 8.0.20+ 会告警（未来版本将移除），当前不影响执行；升级到移除该语法的版本前需改为 `AS new` 别名写法。 |
 | 实测版本 | 已在 MySQL 9.7.0 上跑通全部脚本与接口；`docker-compose.yml` 指定的是 8.0.32，两者均兼容。 |
+
+开发种子仅在专用测试库装载。重跑 09 会重置示例账号密码；生产升级单独执行结构脚本。初始化后可运行 [基础数据核对 SQL](src/test/resources/db/check_basic_data.sql)，检查账号归属、在读班级、审核人、字段归属、状态和 JSON，各项预期为零。
 
 ## 八、启动与测试
 
@@ -510,7 +522,7 @@ curl $BASE/actuator/health
 login() { curl -s -X POST $BASE/auth/login -H "Content-Type: application/json" \
   -d "{\"username\":\"$1\",\"password\":\"Passw0rd!\"}" \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'; }
-STU=$(login 2023010101); COU=$(login 9001); ADMIN0=$(login 9004)
+STU=$(login 2024010101); COU=$(login cou9001); ADMIN0=$(login admin0)
 echo "令牌长度 ${#STU}"
 
 # 2) 当前登录用户：刷新页面后前端靠它恢复登录态
@@ -594,7 +606,6 @@ curl $BASE/auth/me -H "Authorization: Bearer $STU"
 ## 十、注意事项
 
 - **启动不依赖数据库**。连接池懒加载，MySQL 未起也能启动；此时 `/api/actuator/health` 的 `db` 为 `DOWN`，属正常现象。
-- **501 不是缺陷**。六个板块的业务方法体统一抛 `BusinessException(ResultCode.NOT_IMPLEMENTED, ...)`。
 - **跨域**：后端未配置 CORS，前端通过 Vite 代理走同源请求。不要用浏览器直连 `8080`，若确需跨域，另加 `CorsConfiguration` 并写进契约说明。
 - **`target/` 已被忽略**，不要提交；`mvn clean` 会清掉产物。
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。

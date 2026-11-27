@@ -34,4 +34,6 @@ public interface InterestSectionService {
      * @param academicYear 学年
      */
     void submit(Long studentId, String academicYear);
+
+    void withdraw(Long studentId, String academicYear);
 }
