@@ -1,13 +1,13 @@
 package com.college.growth.interest.vo;
 
+import com.college.growth.basic.vo.FieldMetaVO;
+import java.util.List;
 import java.util.Map;
 import lombok.Data;
 
 /**
  * 板块详情视图：兴趣特长（INTEREST）。
  *
- * <p>骨架阶段字段值以 {@code fieldCode -> value} 的松散结构返回，
- * 待 {@code arc_profile_item} 与字段定义落地后，再按需求文档 4.4 收敛为强类型字段。</p>
  */
 @Data
 public class InterestSectionVO {
@@ -27,8 +27,10 @@ public class InterestSectionVO {
     /** 板块状态，取值见 ProfileStatusEnum。 */
     private String status;
 
-    /** 字段值集合，key 为字段编码（如 {@code interest.xxx}）。 */
+    /** 字段值集合，key 为字段短名。 */
     private Map<String, Object> fields;
+
+    private List<FieldMetaVO> fieldMeta;
 
     /** 是否可编辑：由来源标记、角色、状态三层同时判定（BR-F01）。 */
     private Boolean editable;

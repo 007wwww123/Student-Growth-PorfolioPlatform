@@ -66,7 +66,7 @@ backend/
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 09 顺序执行
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 10 顺序执行
 │   │       └── mapper/review/                    # 待审列表 SQL（复杂查询走 XML）
 │   └── test/java/com/college/growth/
 │       ├── auth/service/                         # PasswordHasher（5）、JwtService（7）、AuthService（8）
@@ -88,7 +88,7 @@ backend/
 | `exception/` | `<Name>SectionException` | 板块业务异常 |
 | `mapper/` | `<Name>ProfileMapper` | MyBatis-Plus 数据访问 |
 | `service/` | `<Name>SectionService` | 板块对外唯一入口 |
-| `service/impl/` | `<Name>SectionServiceImpl` | 业务实现（当前为占位） |
+| `service/impl/` | `<Name>SectionServiceImpl` | 板块业务实现 |
 | `util/` | `<Name>SectionUtils` | 板块内纯函数 |
 | `vo/` | `<Name>SectionVO` | 板块详情视图 |
 
@@ -187,8 +187,9 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
 | POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用**；
-> 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
+> 基本信息支持字段确认、明文查看和学籍同步。学业发展、兴趣特长支持详情、草稿保存、提交审核及学生撤回。
+> 学业与兴趣的保存请求体直接使用字段短名，如 `goalShort`、`hobbies`；学科能力认定 `abilityNote` 由本班辅导员维护。
+> 生活心理、职业规划、导师寄语仍返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
 ### 公共审核模块（`com.college.growth.review`）
@@ -289,7 +290,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，九个文件按文件名前缀数字 **01 → 09** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，十个文件按文件名前缀数字 **01 → 10** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -311,6 +312,9 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 # 09 账号种子（7 个演示账号 + 1 个无授权管理员，密码统一 Passw0rd!）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/09_insert_user_seed.sql
 
+# 10 学业发展与兴趣特长字段定义（5 + 4 个）；已执行过 01–09 的库可单独执行本脚本
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/10_insert_academic_interest_field_defs.sql
+
 # 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
   "select count(*) total, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where section_code='BASIC';
@@ -329,7 +333,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 09` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 10` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 
@@ -466,7 +470,6 @@ curl $BASE/auth/me -H "Authorization: Bearer $STU"
 ## 十、注意事项
 
 - **启动不依赖数据库**。连接池懒加载，MySQL 未起也能启动；此时 `/api/actuator/health` 的 `db` 为 `DOWN`，属正常现象。
-- **501 不是缺陷**。六个板块的业务方法体统一抛 `BusinessException(ResultCode.NOT_IMPLEMENTED, ...)`。
 - **跨域**：后端未配置 CORS，前端通过 Vite 代理走同源请求。不要用浏览器直连 `8080`，若确需跨域，另加 `CorsConfiguration` 并写进契约说明。
 - **`target/` 已被忽略**，不要提交；`mvn clean` 会清掉产物。
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。

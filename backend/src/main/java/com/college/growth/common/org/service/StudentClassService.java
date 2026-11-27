@@ -1,5 +1,8 @@
 package com.college.growth.common.org.service;
 
+import com.college.growth.common.context.CurrentUser;
+import com.college.growth.common.exception.BusinessException;
+import com.college.growth.common.result.ResultCode;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.college.growth.common.enums.SectionCodeEnum;
 import com.college.growth.common.org.OrgConstants;
@@ -45,6 +48,15 @@ public class StudentClassService {
         this.itemMapper = itemMapper;
         this.orgClassMapper = orgClassMapper;
         this.studentMasterService = studentMasterService;
+    }
+
+    public void requireStudentScope(Long studentId, String year, CurrentUser user) {
+        if (studentId != null && studentId > 0 && (user.isStudent() && studentId.equals(user.userId())
+                || user.isCounselor() && isCounselorOf(studentId, year, user.userId())
+                || user.isAdminWithGrant())) {
+            return;
+        }
+        throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "无权访问该学生的档案");
     }
 
     /**
