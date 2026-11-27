@@ -106,7 +106,7 @@ frontend/
 | 路径 | 名称 | 组件 | 板块编码 | 说明 |
 |---|---|---|---|---|
 | `/login` | `login` | `LoginView.vue` | — | 登录页，`meta.public`，守卫放行 |
-| `/` | `home` | `HomeView.vue` | — | 六板块入口卡片 |
+| `/` | `home` | `HomeView.vue` | — | 总览：辅导员/持授权管理员看进度看板，其余角色看六板块入口 |
 | `/sections/basic` | `section-basic` | `sections/BasicSectionView.vue` | `basic` | 基本信息 |
 | `/sections/academic` | `section-academic` | `sections/AcademicSectionView.vue` | `academic` | 学业发展 |
 | `/sections/interest` | `section-interest` | `sections/InterestSectionView.vue` | `interest` | 兴趣特长 |
@@ -159,8 +159,8 @@ frontend/
 ### 数据流
 
 ```
-SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue
-  → api/sections.ts、api/review.ts、api/auth.ts
+HomeView.vue / SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue
+  → api/sections.ts、api/review.ts、api/dashboard.ts、api/auth.ts
   → api/http.ts（axios，baseURL=/api，注入 Authorization: Bearer）
   → Result 解包：code === '0' 返回 data；否则抛 ApiError(code / message / details / traceId)
   → 组件：成功刷新详情；失败按 code 展示提示，details 映射为字段下方红字
@@ -192,7 +192,11 @@ SectionShell.vue / ReviewListView.vue / ReviewDetailView.vue
 2. 本机新建 `.env.local`，写入 `VITE_USE_MOCK=false`；后端端口不是 8080 时再加 `VITE_BACKEND_ORIGIN=http://127.0.0.1:18080`；
 3. 重启 `npm run dev`，用下面的演示账号登录（mock 与真实后端的账号清单一致）。
 
-mock 覆盖：登录 / 当前用户 / 登出与未登录拦截，六板块详情 / 保存 / 提交、撤回（限一次）、待确认值确认与驳回、敏感字段明文、待审列表（按辅导员班级过滤）、通过 / 退回，以及 `EC-40101`（未登录）、`EC-40104`（密码错）、`EC-40301`（越权字段）、`EC-40302`（数据范围）、`EC-42202`（必填缺失）、`EC-42203`（退回理由过短）、`EC-40902`（状态冲突）、`EC-40903`（撤回超限）等错误码。
+mock 覆盖：登录 / 当前用户 / 登出与未登录拦截，六板块详情 / 保存 / 提交、撤回（限一次）、待确认值确认与驳回、敏感字段明文、待审列表（按辅导员班级过滤）、通过 / 退回、首页看板（按角色收口范围、班级筛选不能越权），以及 `EC-40101`（未登录）、`EC-40104`（密码错）、`EC-40301`（越权字段）、`EC-40302`（数据范围）、`EC-42202`（必填缺失）、`EC-42203`（退回理由过短）、`EC-40902`（状态冲突）、`EC-40903`（撤回超限）等错误码。
+
+总览页按角色分叉：辅导员与持临时授权的管理员看到本学年进度看板（建档学生、六板块完成、待审/待修改/草稿量、
+六板块堆叠条、班级完成率），学生与无授权管理员仍然只看六个板块入口。看板数字全部由服务端算好，
+前端只做「条形宽度」这类展示换算，不重新累加或推导完成率；加载失败时只显示看板错误并保留入口卡片，不整页报错。
 
 ### 登录与演示账号
 

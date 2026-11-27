@@ -58,6 +58,7 @@ backend/
 │   │   │   │   └── web/                         # TraceIdFilter、JwtAuthFilter（令牌校验与身份注入）
 │   │   │   ├── config/                          # JacksonConfig、MybatisPlusConfig
 │   │   │   ├── review/                          # 公共审核模块（六板块共用，见第六节）
+│   │   │   ├── dashboard/                       # 首页进度聚合（只读统计，见第六节）
 │   │   │   ├── basic/                           # 板块一 基本信息
 │   │   │   ├── academic/                        # 板块二 学业发展
 │   │   │   ├── interest/                        # 板块三 兴趣特长
@@ -67,11 +68,14 @@ backend/
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
 │   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 09 顺序执行
-│   │       └── mapper/review/                    # 待审列表 SQL（复杂查询走 XML）
+│   │       └── mapper/
+│   │           ├── review/                       # 待审列表 SQL
+│   │           └── dashboard/                     # 看板聚合 SQL（两条分组查询）
 │   └── test/java/com/college/growth/
 │       ├── auth/service/                         # PasswordHasher（5）、JwtService（7）、AuthService（8）
 │       ├── basic/service/                        # 板块一详情、保存、提交、越权与校验分支
 │       ├── common/                               # 字段校验器、班级归属、待确认区、SIS 同步、文本规范化
+│       ├── dashboard/service/                    # 看板：数据范围、完成率、缺板块补零
 │       └── review/service/                       # 状态机：提交、撤回、通过、退回
 └── README.md
 ```
@@ -187,7 +191,13 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | POST | `/api/review/{code}/{studentId}/approve` | 审核通过，`SUBMITTED → APPROVED` |
 | POST | `/api/review/{code}/{studentId}/reject` | 审核退回，理由 ≥10 字，`SUBMITTED → RETURNED` |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用**；
+首页看板是一个只读聚合接口，路径独立：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/dashboard/overview?academicYear=&classCode=` | 本学年进度聚合：学生数、完成数、待审量、六板块状态分布、班级完成率 |
+
+> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；看板 1 个接口可用**；
 > 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
@@ -202,6 +212,25 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 新增板块时**不需要**写审核代码：只要板块的提交动作调用 `ProfileWorkflowService.submit(...)`，
 就能被审核模块纳管。板块负责「内容是否齐全」，审核模块负责「谁能改、何时能改、留什么痕」。
+
+### 首页进度聚合模块（`com.college.growth.dashboard`）
+
+| 类 | 职责 |
+|---|---|
+| `DashboardService` | 首页聚合入口，只读；数据范围与班级筛选校验都在这里 |
+| `DashboardMapper` | 两条分组查询：按班级聚合、按「板块 × 状态」聚合，共用同一段 `scope` |
+| `DashboardController` | `/api/dashboard/overview` |
+
+设计取舍：
+
+1. **一个端点返回全部数字**：前端并发打十几个接口再自己加总，很容易出现「已建档 12 人却完成 15 人」这类自相矛盾；
+   服务端一次算完，口径只有一处。
+2. **完成数读 `arc_profile.completed`**，不在统计 SQL 里重算六板块规则——标记由状态机、定时补偿、手动重算维护（S-1-10），
+   看板再算一遍就是第二套口径。
+3. **两次分组查询后在内存拼装**：班级维度与板块维度各一条，加指标不需要再加 SQL；两条查询共用 `scope` 片段，
+   班级取值统一为 `COALESCE(stu_student.class_code, basic.classId, '未分班')`，与 `StudentClassService`、待审列表一致。
+4. **口径为「本学年已建档」**：未建档学生没有行，不计入分母；学籍在册口径属于另一件事，不在首页混算。
+5. **只读、无事务**：不写表、不触发任何派生数据变更，因此方法上不加 `@Transactional`。
 
 ### 登录鉴权模块（`com.college.growth.auth`）
 
