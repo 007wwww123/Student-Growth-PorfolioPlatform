@@ -1,5 +1,8 @@
 package com.college.growth.common.org.service;
 
+import com.college.growth.common.context.CurrentUser;
+import com.college.growth.common.exception.BusinessException;
+import com.college.growth.common.result.ResultCode;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.college.growth.common.enums.SectionCodeEnum;
 import com.college.growth.common.org.OrgConstants;
@@ -47,6 +50,15 @@ public class StudentClassService {
         this.studentMasterService = studentMasterService;
     }
 
+    public void requireStudentScope(Long studentId, String year, CurrentUser user) {
+        if (studentId != null && studentId > 0 && (user.isStudent() && studentId.equals(user.userId())
+                || user.isCounselor() && isCounselorOf(studentId, year, user.userId())
+                || user.isAdminWithGrant())) {
+            return;
+        }
+        throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "无权访问该学生的档案");
+    }
+
     /**
      * 取学生某学年所属班级。
      *
@@ -57,12 +69,17 @@ public class StudentClassService {
         if (TextUtils.isBlank(classValue)) {
             return null;
         }
-        return orgClassMapper.selectOne(Wrappers.<OrgClass>lambdaQuery()
+        OrgClass byCode = orgClassMapper.selectOne(Wrappers.<OrgClass>lambdaQuery()
                 .eq(OrgClass::getStatus, 1)
-                .and(wrapper -> wrapper.eq(OrgClass::getClassCode, classValue)
-                        .or()
-                        .eq(OrgClass::getClassName, classValue))
-                .last("limit 1"));
+                .eq(OrgClass::getClassCode, classValue));
+        if (byCode != null) {
+            return byCode;
+        }
+        var byName = orgClassMapper.selectList(Wrappers.<OrgClass>lambdaQuery()
+                .eq(OrgClass::getStatus, 1)
+                .eq(OrgClass::getClassName, classValue)
+                .last("limit 2"));
+        return byName.size() == 1 ? byName.get(0) : null;
     }
 
     /**
@@ -74,7 +91,7 @@ public class StudentClassService {
     public String findClassValue(Long studentId, String academicYear) {
         String fromMaster = studentMasterService.findClassCode(studentId);
         if (!TextUtils.isBlank(fromMaster)) {
-            return fromMaster;
+            return fromMaster.trim();
         }
         ArcProfile basic = profileMapper.selectOne(Wrappers.<ArcProfile>lambdaQuery()
                 .eq(ArcProfile::getStudentId, studentId)

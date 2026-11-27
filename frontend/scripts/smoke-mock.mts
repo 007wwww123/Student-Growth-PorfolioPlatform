@@ -87,7 +87,7 @@ check(
     detail.body.code === '0' &&
     detail.body.data.status === 'DRAFT' &&
     detail.body.data.fieldMeta.length === 16 &&
-    detail.body.data.fields.idCard === '320102********1234',
+    detail.body.data.fields.idCard === '320102********1232',
   `status=${detail.body.data?.status} fields=${detail.body.data?.fieldMeta?.length} idCard=${detail.body.data?.fields?.idCard}`,
 )
 
@@ -108,7 +108,7 @@ check('PUT 扁平入参被拒', flat.status === 400 && flat.body.code === 'EC-40
 // 4. 学校维护字段学生写不进去 -> EC-40301
 const forbidden = await call(
   `/sections/basic/1001`,
-  json('PUT', STU_1001, { academicYear: YEAR, fields: { name: '张三' } }),
+  json('PUT', STU_1001, { academicYear: YEAR, fields: { classId: 'RJ2402' } }),
 )
 check(
   'PUT 越权字段 403',
@@ -153,6 +153,29 @@ check(
     afterConfirm.body.data.fields.phone === '139****9999',
   `status=${couConfirm.status} phone=${afterConfirm.body.data.fields.phone} pending=${phoneAfter.pendingConfirm}`,
 )
+
+// 照片从空值首填，驳回保留空值，确认后才生效；清空待确认同样可驳回。
+const photoUrl = `/sections/basic/1001/fields/basic.photo`
+const photo = async () => (await call(`/sections/basic/1001?academicYear=${YEAR}`, { headers: STU_1001 })).body.data
+const savePhoto = (value: unknown) => call('/sections/basic/1001',
+  json('PUT', STU_1001, { academicYear: YEAR, fields: { photo: value } }))
+const resolvePhoto = (action: string, headers = COU_9001) =>
+  call(`${photoUrl}/${action}?academicYear=${YEAR}`, json('POST', headers))
+await savePhoto([100])
+const first = await photo()
+check('首次填写只产生候选值', first.fields.photo == null &&
+  first.fieldMeta.find((item: any) => item.key === 'photo')?.pendingValue?.[0] === 100, 'photo')
+check('跨班辅导员不能确认', (await resolvePhoto('confirm', COU_9002)).status === 403, 'photo')
+await resolvePhoto('reject')
+check('首次驳回保留空值', (await photo()).fields.photo == null, 'photo')
+await savePhoto([100])
+await resolvePhoto('confirm')
+await savePhoto(null)
+await resolvePhoto('reject')
+check('驳回清空保留原值', (await photo()).fields.photo[0] === 100, 'photo')
+await savePhoto(null)
+await resolvePhoto('confirm')
+check('确认清空正式值', (await photo()).fields.photo == null, 'photo')
 
 // 8. 提交成功
 const submitted = await call(`/sections/basic/1001/submit?academicYear=${YEAR}`, { method: 'POST', headers: STU_1001 })
@@ -245,13 +268,13 @@ const revealCou = await call(`/sections/basic/1004/fields/basic.idCard/reveal?ac
 check('学生查看明文 403', revealStu.status === 403, `status=${revealStu.status}`)
 check(
   '辅导员查看明文',
-  revealCou.status === 200 && revealCou.body.data.value === '320102200207114560',
+  revealCou.status === 200 && revealCou.body.data.value === '320102200201034565',
   `status=${revealCou.status} value=${revealCou.body.data?.value}`,
 )
 
 // 16. 审核通过后状态流转与重复审核
 const approved = await call(`/review/basic/1002/approve`, json('POST', COU_9001, { academicYear: YEAR }))
-const afterApprove = await call(`/sections/basic/1002?academicYear=${YEAR}`, { headers: STU_1001 })
+const afterApprove = await call(`/sections/basic/1002?academicYear=${YEAR}`, { headers: COU_9001 })
 const again = await call(`/review/basic/1002/approve`, json('POST', COU_9001, { academicYear: YEAR }))
 check(
   '审核通过 + 重复审核 409',
@@ -260,6 +283,27 @@ check(
     again.status === 409,
   `approve=${approved.status} now=${afterApprove.body.data.status} again=${again.status}`,
 )
+
+// 使用独立学年，验证 OpenAPI approveSection 的 pendingField / missingFormalValue 示例。
+const reviewYear = '2024-2025-2'
+const reviewQuery = '?academicYear=' + reviewYear
+const fixture = '/sections/basic/1001'
+const clearRequired = await call(fixture, json('PUT', STU_1001, {
+  academicYear: reviewYear, fields: { emergencyPhone: null },
+}))
+const sent = await call(fixture + '/submit' + reviewQuery, json('POST', STU_1001))
+check('审批夹具进入已提交状态', clearRequired.body.code === '0' && sent.body.code === '0', reviewYear)
+async function checkBlockedApproval(name: string, httpStatus: number, code: string) {
+  const result = await call('/review/basic/1001/approve', json('POST', COU_9001, { academicYear: reviewYear }))
+  const detail = await call(fixture + reviewQuery, { headers: STU_1001 })
+  check(name, result.status === httpStatus && result.body.code === code &&
+    typeof result.body.traceId === 'string' && detail.body.data?.status === 'SUBMITTED',
+    `status=${result.status} code=${result.body.code} state=${detail.body.data?.status}`)
+}
+await checkBlockedApproval('有候选值时禁止审核通过', 409, 'EC-40902')
+const cleared = await call(fixture + '/fields/basic.emergencyPhone/confirm' + reviewQuery, json('POST', COU_9001))
+check('辅导员确认清空必填字段', cleared.status === 200 && cleared.body.code === '0', reviewYear)
+await checkBlockedApproval('正式必填值为空时禁止审核通过', 422, 'EC-42202')
 
 // 17. 批量建档（S-1-01）：仅辅导员、仅本班；重复执行不重复创建
 const enrollAsStu = await call(`/profiles/classes?academicYear=${YEAR}`, { headers: STU_1001 })

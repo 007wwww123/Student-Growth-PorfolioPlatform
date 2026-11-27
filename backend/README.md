@@ -68,7 +68,7 @@ backend/
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 09 顺序执行
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 10 顺序执行
 │   │       └── mapper/
 │   │           ├── review/                       # 待审列表 SQL
 │   │           └── dashboard/                     # 看板聚合 SQL（两条分组查询）
@@ -94,7 +94,7 @@ backend/
 | `exception/` | `<Name>SectionException` | 板块业务异常 |
 | `mapper/` | `<Name>ProfileMapper` | MyBatis-Plus 数据访问 |
 | `service/` | `<Name>SectionService` | 板块对外唯一入口 |
-| `service/impl/` | `<Name>SectionServiceImpl` | 业务实现（当前为占位） |
+| `service/impl/` | `<Name>SectionServiceImpl` | 板块业务实现 |
 | `util/` | `<Name>SectionUtils` | 板块内纯函数 |
 | `vo/` | `<Name>SectionVO` | 板块详情视图 |
 
@@ -220,8 +220,9 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 |---|---|---|
 | GET | `/api/dashboard/overview?academicYear=&classCode=` | 本学年进度聚合：学生数、完成数、待审量、六板块状态分布、班级完成率 |
 
-> **当前状态：板块一（basic）后端闭环（7 个板块级接口）；审核模块 3 个接口可用；登录鉴权 3 个接口可用；批量建档 2 个接口可用；批量归档 2 个接口可用；完成标记 2 个接口可用；看板 1 个接口可用**；
-> 其余五个板块 Service 仍为占位，返回 `501 / EC-50000`。
+> 基本信息支持字段确认、明文查看和学籍同步。学业发展、兴趣特长支持详情、草稿保存、提交审核及学生撤回。
+> 学业与兴趣的保存请求体直接使用字段短名，如 `goalShort`、`hobbies`；学科能力认定 `abilityNote` 由本班辅导员维护。
+> 生活心理、职业规划、导师寄语仍返回 `501 / EC-50000`。
 > 请求体、响应体、错误码的完整定义见 [openapi.yaml](../openapi.yaml)。
 
 ### 公共审核模块（`com.college.growth.review`）
@@ -332,11 +333,11 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 
 | 登录名 | 角色 | 说明 |
 |---|---|---|
-| `2023010101` | STU | 学生，关联 `studentId=1001` |
-| `2023010102` / `2023010201` | STU | 另两个班的学生 |
-| `9001` / `9002` | COU | 辅导员，各带一个班 |
-| `9003` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
-| `9004` | ADMIN | 无授权，用于验证 `EC-40302` |
+| `2024010101` | STU | 学生，关联 `studentId=1001` |
+| `2024010102` / `2024010201` / `2024010301` | STU | 用于同班、跨班测试的学生 |
+| `cou9001` / `cou9002` | COU | 前者负责两个软件班，后者负责电子班 |
+| `admin` | ADMIN | 持临时授权（`temp_grant=1`），可读业务数据 |
+| `admin0` | ADMIN | 无授权，用于验证 `EC-40302` |
 
 令牌默认 8 小时有效，可通过 `JWT_TTL_HOURS` 调整；签名密钥取 `JWT_SECRET`，**生产必须覆盖**，
 `application.yml` 里的默认值仅供本地联调。密码摘要算法与迭代次数变更后老账号需重置密码（无平滑迁移）。
@@ -391,7 +392,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，九个文件按文件名前缀数字 **01 → 09** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，十个文件按文件名前缀数字 **01 → 10** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -413,6 +414,9 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 # 09 账号种子（7 个演示账号 + 1 个无授权管理员，密码统一 Passw0rd!）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/09_insert_user_seed.sql
 
+# 10 学业发展与兴趣特长字段定义（5 + 4 个）；已执行过 01–09 的库可单独执行本脚本
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/10_insert_academic_interest_field_defs.sql
+
 # 自检：应为 total=16、required_cnt=8、sis_mapped=7、students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
   "select count(*) total, sum(required=1) required_cnt, sum(source_field is not null) sis_mapped from arc_field_def where section_code='BASIC';
@@ -431,7 +435,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 09` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 10` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 
@@ -440,6 +444,8 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 | `SENSITIVE` 保留字 | 自 MySQL 9.0 起 `SENSITIVE` 是保留字（8.0 不是）。字段定义的敏感级别列已改名 `sensitive_level`，**不要改回 `sensitive`**，否则建表与 MyBatis-Plus 生成的 SQL 都会报 1064。 |
 | `VALUES()` 弃用 | 种子里 `ON DUPLICATE KEY UPDATE col = VALUES(col)` 在 MySQL 8.0.20+ 会告警（未来版本将移除），当前不影响执行；升级到移除该语法的版本前需改为 `AS new` 别名写法。 |
 | 实测版本 | 已在 MySQL 9.7.0 上跑通全部脚本与接口；`docker-compose.yml` 指定的是 8.0.32，两者均兼容。 |
+
+开发种子仅在专用测试库装载。重跑 09 会重置示例账号密码；生产升级单独执行结构脚本。初始化后可运行 [基础数据核对 SQL](src/test/resources/db/check_basic_data.sql)，检查账号归属、在读班级、审核人、字段归属、状态和 JSON，各项预期为零。
 
 ## 八、启动与测试
 
@@ -482,7 +488,7 @@ curl $BASE/actuator/health
 login() { curl -s -X POST $BASE/auth/login -H "Content-Type: application/json" \
   -d "{\"username\":\"$1\",\"password\":\"Passw0rd!\"}" \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'; }
-STU=$(login 2023010101); COU=$(login 9001); ADMIN0=$(login 9004)
+STU=$(login 2024010101); COU=$(login cou9001); ADMIN0=$(login admin0)
 echo "令牌长度 ${#STU}"
 
 # 2) 当前登录用户：刷新页面后前端靠它恢复登录态
@@ -566,7 +572,6 @@ curl $BASE/auth/me -H "Authorization: Bearer $STU"
 ## 十、注意事项
 
 - **启动不依赖数据库**。连接池懒加载，MySQL 未起也能启动；此时 `/api/actuator/health` 的 `db` 为 `DOWN`，属正常现象。
-- **501 不是缺陷**。六个板块的业务方法体统一抛 `BusinessException(ResultCode.NOT_IMPLEMENTED, ...)`。
 - **跨域**：后端未配置 CORS，前端通过 Vite 代理走同源请求。不要用浏览器直连 `8080`，若确需跨域，另加 `CorsConfiguration` 并写进契约说明。
 - **`target/` 已被忽略**，不要提交；`mvn clean` 会清掉产物。
 - **端口占用**：`SERVER_PORT` 覆盖即可，不要改 `application.yml` 里的默认值。

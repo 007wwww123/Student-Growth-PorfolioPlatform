@@ -57,6 +57,21 @@ public class ProfileCompletenessService {
         return compute(profile.getSectionCode(), itemService.loadByProfile(profile.getId()));
     }
 
+    /** 审核只接受正式值；候选值可用于提交，但必须在通过前处理。 */
+    public void requireReviewReady(ArcProfile profile) {
+        var items = itemService.loadByProfile(profile.getId());
+        for (var def : fieldDefService.listActive(profile.getSectionCode())) {
+            var item = items.get(def.getFieldCode());
+            if (item != null && item.hasPending()) {
+                throw new BusinessException(ResultCode.STATE_CONFLICT, "请先确认或驳回：" + def.getFieldName());
+            }
+            if (def.isRequired() && !DerivedFieldValidator.CODE.equalsIgnoreCase(def.getValidator())
+                    && FieldValues.isEmpty(FieldValueCodec.read(def, item))) {
+                throw new BusinessException(ResultCode.REQUIRED_FIELD_MISSING, "请退回补填：" + def.getFieldName());
+            }
+        }
+    }
+
     /** 按已加载的字段值计算完成度，供已经查过 items 的调用方复用，避免重复查询。 */
     public BigDecimal compute(String sectionCode, Map<String, ArcProfileItem> items) {
         List<ArcFieldDef> requiredDefs = fieldDefService.listActive(sectionCode).stream()

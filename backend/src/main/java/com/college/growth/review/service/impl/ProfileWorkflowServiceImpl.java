@@ -65,7 +65,7 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
     @Transactional(rollbackFor = Exception.class)
     public void submit(ArcProfile profile, String reason) {
         CurrentUser user = UserContext.get();
-        if (!user.isStudent()) {
+        if (!user.isStudent() || !profile.getStudentId().equals(user.userId())) {
             throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "只有学生本人可以提交本人板块");
         }
         ProfileStatusEnum from = statusOf(profile);
@@ -132,6 +132,7 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
             throw new BusinessException(ResultCode.STATE_CONFLICT,
                     "当前状态为「" + from.getLabel() + "」，只有已提交的板块可以审核");
         }
+        completenessService.requireReviewReady(profile);
         String note = normalizeComment(comment);
 
         CurrentUser user = UserContext.get();

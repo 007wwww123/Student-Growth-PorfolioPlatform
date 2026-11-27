@@ -53,4 +53,11 @@ public class InterestSectionController {
         interestSectionService.submit(studentId, academicYear);
         return Result.success();
     }
+
+    @PostMapping("/{studentId}/withdraw")
+    public Result<Void> withdraw(@PathVariable Long studentId,
+                                 @RequestParam(required = false) String academicYear) {
+        interestSectionService.withdraw(studentId, academicYear);
+        return Result.success();
+    }
 }

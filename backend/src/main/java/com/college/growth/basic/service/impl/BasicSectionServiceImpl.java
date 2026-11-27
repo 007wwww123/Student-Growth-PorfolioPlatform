@@ -13,7 +13,6 @@ import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.ProfileStatusEnum;
 import com.college.growth.common.enums.UserRoleEnum;
 import com.college.growth.common.exception.BusinessException;
-import com.college.growth.common.field.FieldOption;
 import com.college.growth.common.field.FieldSourceEnum;
 import com.college.growth.common.field.FieldValues;
 import com.college.growth.common.field.entity.ArcFieldDef;
@@ -132,6 +131,9 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     public BasicSectionVO detail(Long studentId, String academicYear) {
         String year = AcademicYearUtils.resolve(academicYear);
         CurrentUser user = UserContext.get();
+        if (user.canReadBusinessData()) {
+            studentClassService.requireStudentScope(studentId, year, user);
+        }
         List<ArcFieldDef> defs = fieldDefService.listActive(BasicConstants.SECTION_CODE);
         ArcProfile profile = profileLocator.find(studentId, BasicConstants.SECTION_CODE, year);
         Map<String, ArcProfileItem> items = itemService.loadByProfile(profile == null ? null : profile.getId());
@@ -201,6 +203,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     public void save(Long studentId, BasicSectionSaveDTO dto) {
         CurrentUser user = UserContext.get();
         String year = AcademicYearUtils.resolve(dto.getAcademicYear());
+        studentClassService.requireStudentScope(studentId, year, user);
         Map<String, Object> submitted = dto.getFields();
         if (submitted == null || submitted.isEmpty()) {
             throw new BusinessException(ResultCode.PARAM_MISSING, "没有需要保存的字段");
@@ -269,6 +272,10 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     @Transactional(rollbackFor = Exception.class)
     public void submit(Long studentId, String academicYear) {
         String year = AcademicYearUtils.resolve(academicYear);
+        CurrentUser user = UserContext.get();
+        if (!user.isStudent() || !studentId.equals(user.userId())) {
+            throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "仅学生本人可提交");
+        }
         List<ArcFieldDef> defs = fieldDefService.listActive(BasicConstants.SECTION_CODE);
         ArcProfile profile = profileLocator.find(studentId, BasicConstants.SECTION_CODE, year);
         if (profile == null) {
@@ -337,6 +344,8 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         if (!user.isCounselor() && !user.isAdminWithGrant()) {
             throw new BusinessException(ResultCode.DATA_SCOPE_DENIED, "无权查看该字段的完整内容");
         }
+        String year = AcademicYearUtils.resolve(academicYear);
+        studentClassService.requireStudentScope(studentId, year, user);
         ArcFieldDef def = fieldDefService.getByCode(fieldCode);
         if (def == null || !BasicConstants.SECTION_CODE.equals(def.getSectionCode())) {
             throw new BusinessException(ResultCode.PARAM_INVALID, "字段不存在");
@@ -345,7 +354,6 @@ public class BasicSectionServiceImpl implements BasicSectionService {
             throw new BusinessException(ResultCode.PARAM_INVALID, "该字段不是敏感字段");
         }
 
-        String year = AcademicYearUtils.resolve(academicYear);
         ArcProfile profile = profileLocator.require(studentId, BasicConstants.SECTION_CODE, year,
                 BasicConstants.SECTION_NAME);
         ArcProfileItem item = itemService.find(profile.getId(), fieldCode);
@@ -393,8 +401,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     /**
      * 写入单个字段。
      *
-     * <p>STU_CFM 字段由学生修改时，若已有旧值则进待确认区（BR-F06）；旧值为空时直接落正式值并标记待确认，
-     * 否则「紧急联系电话」这类必填字段在辅导员确认前永远为空，提交必然失败。</p>
+     * <p>学生填写的待确认字段只写候选区，正式值由辅导员确认后更新。</p>
      */
     private void applyFieldSave(ArcProfile profile, ArcFieldDef def, Object value,
                                 Map<String, ArcProfileItem> items, CurrentUser user) {
@@ -410,17 +417,16 @@ public class BasicSectionServiceImpl implements BasicSectionService {
         Object oldValue = FieldValueCodec.read(def, item);
         FieldSourceEnum source = FieldSourceEnum.fromCode(def.getSource());
         if (source.requiresConfirmation() && user.isStudent()) {
-            if (FieldValues.isEmpty(oldValue)) {
-                FieldValueCodec.write(item, def, value);
-                item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
-            } else if (FieldValueCodec.same(def, oldValue, value)) {
+            if (!item.hasPending() && FieldValueCodec.same(def, oldValue, value)) {
                 return;
-            } else {
-                FieldValueCodec.writePending(item, def, value);
-                item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
             }
+            FieldValueCodec.writePending(item, def, value);
+            item.setConfirmStatus(BasicConstants.CONFIRM_PENDING);
+            item.setConfirmedAt(null);
+            item.setConfirmedBy(null);
         } else {
             FieldValueCodec.write(item, def, value);
+            FieldValueCodec.clearPending(item);
             boolean confirmed = source.requiresConfirmation();
             item.setConfirmStatus(confirmed ? BasicConstants.CONFIRM_APPROVED : BasicConstants.CONFIRM_NONE);
             if (confirmed) {
@@ -464,18 +470,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     }
 
     private FieldMetaVO buildMeta(ArcFieldDef def, boolean editable, boolean masked, ArcProfileItem item) {
-        FieldMetaVO meta = new FieldMetaVO();
-        meta.setKey(BasicSectionUtils.shortName(def.getFieldCode()));
-        meta.setFieldCode(def.getFieldCode());
-        meta.setFieldName(def.getFieldName());
-        meta.setFieldType(def.getFieldType());
-        meta.setRequired(def.isRequired());
-        meta.setSource(def.getSource());
-        List<FieldOption> options = FieldOption.parse(def.getOptionsJson());
-        meta.setOptions(options.isEmpty() ? null : options);
-        meta.setSensitive(def.getSensitiveLevel());
-        meta.setEditable(editable);
-        meta.setMasked(masked);
+        FieldMetaVO meta = FieldMetaVO.from(def, editable, masked);
         boolean pending = item != null && item.hasPending();
         meta.setPendingConfirm(pending);
         if (pending) {

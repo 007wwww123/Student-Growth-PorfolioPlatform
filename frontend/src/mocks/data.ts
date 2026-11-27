@@ -84,8 +84,9 @@ const BASIC_FIELDS: MockFieldDef[] = [
     source: 'SIS',
     editableRoles: [],
     options: [
-      { value: '男', label: '男' },
-      { value: '女', label: '女' },
+      { value: 'M', label: '男' },
+      { value: 'F', label: '女' },
+      { value: 'U', label: '未知' },
     ],
   },
   {
@@ -191,9 +192,9 @@ const BASIC_FIELDS: MockFieldDef[] = [
     sensitive: 1,
     editableRoles: ['COU'],
     options: [
-      { value: '一般', label: '一般' },
-      { value: '困难', label: '困难' },
-      { value: '特殊困难', label: '特殊困难' },
+      { value: 'NORMAL', label: '一般' },
+      { value: 'DIFFICULT', label: '困难' },
+      { value: 'GOOD', label: '良好' },
     ],
   },
   {
@@ -204,9 +205,9 @@ const BASIC_FIELDS: MockFieldDef[] = [
     source: 'COU',
     editableRoles: ['COU'],
     options: [
-      { value: '双亲', label: '双亲' },
-      { value: '单亲', label: '单亲' },
-      { value: '其他', label: '其他' },
+      { value: 'ONLY_CHILD', label: '独生' },
+      { value: 'NOT_ONLY', label: '非独生' },
+      { value: 'OTHER', label: '其他' },
     ],
   },
 ]
@@ -255,11 +256,11 @@ function defsOf(code: SectionCode): MockFieldDef[] {
 }
 
 /** 学生 × 班级，与 stu_student / org_class 种子数据一致。 */
-const STUDENTS: Record<number, { name: string; no: string; gender: string; classId: string; idCard: string }> = {
-  1001: { name: '李明', no: '2024010101', gender: '男', classId: 'RJ2401', idCard: '320102200201011234' },
-  1002: { name: '王芳', no: '2024010102', gender: '女', classId: 'RJ2401', idCard: '320102200203152346' },
-  1003: { name: '陈晨', no: '2024010201', gender: '男', classId: 'RJ2402', idCard: '320102200205203458' },
-  1004: { name: '赵敏', no: '2024010301', gender: '女', classId: 'DZ2401', idCard: '320102200207114560' },
+const STUDENTS: Record<number, { name: string; no: string; gender: string; classId: string; idCard: string; nation: string; nativePlace: string }> = {
+  1001: { name: '李明', no: '2024010101', gender: 'M', classId: 'RJ2401', idCard: '320102200201011232', nation: '汉族', nativePlace: '江苏 南京' },
+  1002: { name: '王芳', no: '2024010102', gender: 'F', classId: 'RJ2401', idCard: '320102200201015671', nation: '回族', nativePlace: '江苏 南京' },
+  1003: { name: '陈晨', no: '2024010201', gender: 'M', classId: 'RJ2402', idCard: '320102200201022345', nation: '汉族', nativePlace: '江苏 苏州' },
+  1004: { name: '赵敏', no: '2024010301', gender: 'F', classId: 'DZ2401', idCard: '320102200201034565', nation: '满族', nativePlace: '江苏 无锡' },
 }
 
 /** 班级 → 辅导员，用于校验审核数据范围。 */
@@ -387,17 +388,17 @@ function basicFieldsOf(studentId: number): Record<string, unknown> {
   const student = STUDENTS[studentId] ?? {
     name: `学生${studentId}`,
     no: String(studentId),
-    gender: '男',
+    gender: 'M',
     classId: 'RJ2401',
-    idCard: '320102200201010000',
+    idCard: '320102200201010000', nation: '汉族', nativePlace: '江苏 南京',
   }
   return {
     name: student.name,
     studentNo: student.no,
     gender: student.gender,
-    nation: '汉族',
+    nation: student.nation,
     idCard: student.idCard,
-    nativePlace: '江苏南京',
+    nativePlace: student.nativePlace,
     dormNo: '3-412',
     classId: student.classId,
     majorId: student.classId.startsWith('DZ') ? '电子信息工程' : '软件工程',
@@ -406,8 +407,8 @@ function basicFieldsOf(studentId: number): Record<string, unknown> {
     emergencyContact: '李建国',
     emergencyPhone: '13900005678',
     photo: null,
-    econLevel: '一般',
-    familyStructure: '双亲',
+    econLevel: 'NORMAL',
+    familyStructure: 'ONLY_CHILD',
   }
 }
 
@@ -504,12 +505,12 @@ function maskedValue(def: MockFieldDef, value: unknown): unknown {
 }
 
 function completeOf(section: MockSection): number {
-  const required = defsOf(section.sectionCode.toLowerCase() as SectionCode).filter((def) => def.required)
+  const required = defsOf(section.sectionCode.toLowerCase() as SectionCode).filter((def) => def.required && def.source !== 'SYS')
   if (required.length === 0) {
     return 100
   }
   const filled = required.filter((def) => {
-    const value = section.fields[def.key]
+    const value = section.fields[def.key] ?? section.pending[def.key]
     return value != null && String(value).trim() !== ''
   }).length
   return Number(((filled / required.length) * 100).toFixed(2))
@@ -592,7 +593,7 @@ export function saveSection(
   const values = (payload.fields ?? {}) as Record<string, unknown>
   const defByKey = new Map(defsOf(code).map((def) => [def.key, def]))
 
-  for (const [key, value] of Object.entries(values)) {
+  for (const key of Object.keys(values)) {
     const def = defByKey.get(key)
     if (!def) {
       throw new MockError('EC-42201', '字段不存在或已停用', 422)
@@ -600,12 +601,15 @@ export function saveSection(
     if (!canEdit(def, role, section.status)) {
       throw new MockError('EC-40301', `无权修改字段「${def.name}」`, 403)
     }
-    const current = section.fields[key]
-    // 需确认字段二次修改进待确认区，首次填写直接生效
-    if (def.source === 'STU_CFM' && current != null && String(current) !== '' && String(current) !== String(value)) {
-      section.pending[key] = value
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    const def = defByKey.get(key)!
+    if (def.source === 'STU_CFM' && role === 'STU') {
+      if (JSON.stringify(section.fields[key]) !== JSON.stringify(value)) section.pending[key] = value
     } else {
       section.fields[key] = value
+      delete section.pending[key]
     }
   }
 
@@ -625,9 +629,9 @@ export function submitSection(
     throw new MockError('EC-40902', '当前状态不允许提交', 409)
   }
   const missing = defsOf(code)
-    .filter((def) => def.required)
+    .filter((def) => def.required && def.source !== 'SYS')
     .filter((def) => {
-      const value = section.fields[def.key]
+      const value = section.fields[def.key] ?? section.pending[def.key]
       return value == null || String(value).trim() === ''
     })
   if (missing.length > 0) {
@@ -670,9 +674,10 @@ export function handlePending(
   fieldKey: string,
   action: 'confirm' | 'reject',
   role: UserRole,
+  userId: number,
 ): { fieldCode: string; fieldName?: string; value?: unknown; confirmStatus: string } {
   ensureSeed()
-  if (role !== 'COU' && role !== 'ADMIN') {
+  if (role !== 'COU' || CLASS_COUNSELOR[classOfStudent(studentId, academicYear)] !== userId) {
     throw new MockError('EC-40302', '仅该班现任辅导员可以处理待确认值', 403)
   }
   const section = getRaw(code, studentId, academicYear)
@@ -831,6 +836,12 @@ export function approveSection(
   const section = getRaw(code, studentId, academicYear)
   if (section.status !== 'SUBMITTED') {
     throw new MockError('EC-40902', '该档案当前不是待审核状态', 409)
+  }
+  for (const def of defsOf(code)) {
+    if (Object.prototype.hasOwnProperty.call(section.pending, def.key))
+      throw new MockError('EC-40902', '请先确认或驳回：' + def.name, 409)
+    if (def.required && def.source !== 'SYS' && !String(section.fields[def.key] ?? '').trim())
+      throw new MockError('EC-42202', '请退回补填：' + def.name, 422)
   }
   section.status = 'APPROVED'
   section.reviewerId = userId

@@ -18,8 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 板块二 学业发展（ACADEMIC）接口入口。
  *
- * <p>对应需求文档 4.3 字段清单与 2.2 主流程 S-1。当前仅提供路由与返回结构，
- * 具体渲染、校验、状态流转在 Service 层实现。</p>
+ * <p>字段渲染、校验与状态流转由 Service 层处理。</p>
  */
 @RestController
 @RequestMapping(AcademicConstants.API_BASE_PATH)
@@ -49,8 +48,15 @@ public class AcademicSectionController {
     /** 提交板块（S-1-05）：校验必填齐全后由 DRAFT / RETURNED 转为 SUBMITTED。 */
     @PostMapping("/{studentId}/submit")
     public Result<Void> submit(@PathVariable Long studentId,
-                               @RequestParam String academicYear) {
+                               @RequestParam(required = false) String academicYear) {
         academicSectionService.submit(studentId, academicYear);
+        return Result.success();
+    }
+
+    @PostMapping("/{studentId}/withdraw")
+    public Result<Void> withdraw(@PathVariable Long studentId,
+                                 @RequestParam(required = false) String academicYear) {
+        academicSectionService.withdraw(studentId, academicYear);
         return Result.success();
     }
 }
