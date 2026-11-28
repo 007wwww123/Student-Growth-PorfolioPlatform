@@ -35,6 +35,7 @@ import com.college.growth.common.profile.service.ProfileItemService;
 import com.college.growth.common.student.service.StudentMasterService;
 import com.college.growth.common.result.ResultCode;
 import com.college.growth.completion.service.impl.CompletionServiceImpl;
+import com.college.growth.notification.service.NotificationService;
 import com.college.growth.review.service.impl.ProfileWorkflowServiceImpl;
 import java.math.BigDecimal;
 import java.util.List;
@@ -81,6 +82,9 @@ class ProfileWorkflowServiceTest {
     private StudentClassService studentClassService;
 
     @Mock
+    private NotificationService notificationService;
+
+    @Mock
     private FieldDefService fieldDefService;
 
     @Mock
@@ -102,7 +106,7 @@ class ProfileWorkflowServiceTest {
                 new ProfileCompletenessService(fieldDefService, new ProfileItemService(itemMapper),
                         profileMapper),
                 new CompletionServiceImpl(profileMapper, studentMasterService, studentClassService,
-                        new AuditLogService(auditLogMapper)));
+                        new AuditLogService(auditLogMapper)), notificationService);
     }
 
     @AfterEach

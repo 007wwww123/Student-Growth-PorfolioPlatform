@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FieldList from '@/components/FieldList.vue'
 import PendingHint from '@/components/PendingHint.vue'
 import { isApiError, type ApiError } from '@/api/http'
@@ -42,10 +42,16 @@ const confirmingWithdraw = ref(false)
 const error = ref<ApiError | null>(null)
 const notice = ref('')
 const exporting = ref(false)
+/** 表单有未保存修改；35 秒定时器只在这种情况下自动保存。 */
+const dirty = ref(false)
 
 /** 学生看自己的档案；辅导员/管理员从这里进入时只能查看，学生 ID 由路由上下文决定。 */
 const user = getUser()
 const studentId = computed(() => user?.studentId ?? DEMO_STUDENT_ID)
+
+watch(form, () => {
+  if (!loading.value) dirty.value = true
+}, { deep: true })
 
 /**
  * 管理员只配置字段权限，不编辑档案内容。
@@ -126,6 +132,7 @@ async function load(): Promise<void> {
     section.value = data
     form.value = formFromFields(data.fields, renderFieldsOf(data.fieldMeta))
     initialForm.value = { ...form.value }
+    dirty.value = false
   } catch (e) {
     section.value = null
     error.value = isApiError(e) ? e : null
@@ -202,6 +209,7 @@ async function onSave(): Promise<void> {
   try {
     await saveSection(props.code, studentId.value, payload)
     notice.value = '草稿已保存'
+    dirty.value = false
     await load()
   } catch (e) {
     error.value = isApiError(e) ? e : null
@@ -262,6 +270,27 @@ async function onWithdraw(): Promise<void> {
 }
 
 watch(() => props.code, load, { immediate: true })
+/** AC-012：35 秒无操作自动保存；只在可编辑且有改动时触发，避免空提交。 */
+async function autoSave(): Promise<void> {
+  if (!editable.value || !dirty.value || saving.value || submitting.value) return
+  const payload = buildPayload()
+  if (!payload) return
+  saving.value = true
+  try {
+    await saveSection(props.code, studentId.value, payload)
+    dirty.value = false
+    const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    notice.value = `已自动保存 ${now}`
+  } catch {
+    // 自动保存失败不覆盖用户当前输入；保留 dirty，下一轮重试
+  } finally {
+    saving.value = false
+  }
+}
+
+const autoSaveTimer = setInterval(autoSave, 35000)
+
+onBeforeUnmount(() => clearInterval(autoSaveTimer))
 </script>
 
 <template>

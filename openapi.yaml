@@ -1751,6 +1751,64 @@ paths:
               schema:
                 $ref: '#/components/schemas/ObjectResponse'
 
+  /notifications:
+    get:
+      tags: [通知]
+      operationId: listNotifications
+      summary: 我的站内通知
+      parameters:
+        - { name: unreadOnly, in: query, required: false, schema: { type: boolean, default: false } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 通知分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /notifications/unread-count:
+    get:
+      tags: [通知]
+      operationId: unreadNotificationCount
+      summary: 未读通知数
+      responses:
+        '200':
+          description: 未读数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /notifications/{id}/read:
+    post:
+      tags: [通知]
+      operationId: markNotificationRead
+      summary: 标记单条已读
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /notifications/read-all:
+    post:
+      tags: [通知]
+      operationId: markAllNotificationsRead
+      summary: 全部标记已读
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
   /audit/logs:
     get:
       tags: [系统管理]
