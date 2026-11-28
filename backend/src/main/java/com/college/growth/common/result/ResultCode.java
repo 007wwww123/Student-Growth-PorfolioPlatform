@@ -24,6 +24,7 @@ public enum ResultCode {
     FIELD_NOT_EDITABLE("EC-40301", 403, "该字段由学校维护，无法修改"),
     DATA_SCOPE_DENIED("EC-40302", 403, "无权访问该学生档案"),
     PERMISSION_DENIED("EC-40303", 403, "当前角色无权执行该操作"),
+    SENSITIVE_EXPORT_DENIED("EC-40304", 403, "敏感列导出需审批通过且在有效期内"),
 
     STATE_CONFLICT("EC-40902", 409, "当前状态不允许该操作"),
     WITHDRAW_EXCEEDED("EC-40903", 409, "撤回次数已用完"),

@@ -27,6 +27,9 @@ public class ProfileExportController {
 
     private static final MediaType PDF = MediaType.APPLICATION_PDF;
 
+    private static final MediaType XLSX = MediaType.parseMediaType(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
     private final ProfileExportService profileExportService;
 
     public ProfileExportController(ProfileExportService profileExportService) {
@@ -47,12 +50,16 @@ public class ProfileExportController {
 
     @GetMapping("/tasks/{id}/download")
     public ResponseEntity<byte[]> download(@PathVariable Long id) {
+        ExportTaskVO task = profileExportService.status(id);
         byte[] bytes = profileExportService.download(id);
+        boolean excel = task.getFileName() != null && task.getFileName().toLowerCase().endsWith(".xlsx");
+        String fileName = task.getFileName() == null
+                ? (excel ? "export.xlsx" : "student-profile.pdf") : task.getFileName();
         ContentDisposition disposition = ContentDisposition.attachment()
-                .filename("student-profile.pdf", StandardCharsets.UTF_8).build();
+                .filename(fileName, StandardCharsets.UTF_8).build();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-                .contentType(PDF)
+                .contentType(excel ? XLSX : PDF)
                 .body(bytes);
     }
 }
