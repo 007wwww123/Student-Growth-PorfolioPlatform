@@ -144,6 +144,15 @@ const CHANGE_ITEM: NavItem = {
   matchNames: ['changes'],
 }
 
+/** 班级汇总 Excel：COU 导出本班，管理员审批敏感列（F-13）。 */
+const CLASS_EXPORT_ITEM: NavItem = {
+  key: 'class-export',
+  label: '班级导出',
+  icon: 'profile',
+  to: '/class-export',
+  matchNames: ['class-export'],
+}
+
 /** 审计日志：管理员专属，审计与登录日志查询。 */
 const AUDIT_ITEM: NavItem = {
   key: 'audit',
@@ -209,7 +218,7 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
   if (role === 'ADMIN' && !tempGrant) {
     // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现；
     // 系统管理（字段权限、组织架构、账号管理）不接触档案内容，保留。
-    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CHANGE_ITEM] }]
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CHANGE_ITEM, CLASS_EXPORT_ITEM] }]
   }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
@@ -219,11 +228,11 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
     ]
     // 档案管理只有辅导员有写权限；管理员保持只读，不出现建档/归档入口
     if (role === 'COU') {
-      groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM, IMPORT_ITEM] })
+      groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM, IMPORT_ITEM, CLASS_EXPORT_ITEM] })
     }
     // 字段权限、组织架构、账号管理是管理员专属；辅导员不出现，路由守卫也会拦截
     if (role === 'ADMIN') {
-      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM] })
+      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CLASS_EXPORT_ITEM] })
     }
     return groups
   }

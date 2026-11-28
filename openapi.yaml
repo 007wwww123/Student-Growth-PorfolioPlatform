@@ -1431,6 +1431,118 @@ paths:
               schema:
                 $ref: '#/components/schemas/ObjectResponse'
 
+  /export/class:
+    post:
+      tags: [系统管理]
+      operationId: exportClassExcel
+      summary: 班级汇总 Excel（COU 本班；敏感列需审批）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classCode]
+              properties:
+                classCode: { type: string }
+                academicYear: { type: string }
+                columns:
+                  type: array
+                  items: { type: string }
+                approvalId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 导出任务
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+        '403':
+          description: 非本班或敏感列未审批（EC-40302 / EC-40304）
+
+  /export/class/approvals:
+    post:
+      tags: [系统管理]
+      operationId: applySensitiveExport
+      summary: 申请敏感列导出
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classCode, reason]
+              properties:
+                classCode: { type: string }
+                reason: { type: string, minLength: 5, maxLength: 200 }
+      responses:
+        '200':
+          description: 审批单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    get:
+      tags: [系统管理]
+      operationId: listSensitiveExports
+      summary: 敏感列导出申请（COU 本人 / ADMIN 全部）
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [PENDING, APPROVED, REJECTED] } }
+      responses:
+        '200':
+          description: 申请列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /export/class/approvals/{id}/approve:
+    post:
+      tags: [系统管理]
+      operationId: approveSensitiveExport
+      summary: 通过敏感列导出（4 小时有效）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 审批结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /export/class/approvals/{id}/reject:
+    post:
+      tags: [系统管理]
+      operationId: rejectSensitiveExport
+      summary: 拒绝敏感列导出（意见必填）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remark]
+              properties:
+                remark: { type: string, minLength: 2, maxLength: 500 }
+      responses:
+        '200':
+          description: 审批结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /changes:
     get:
       tags: [档案查看]

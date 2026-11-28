@@ -64,6 +64,12 @@ const router = createRouter({
       meta: { title: '导师寄语' },
     },
     {
+      path: '/class-export',
+      name: 'class-export',
+      component: () => import('@/views/admin/ClassExportView.vue'),
+      meta: { title: '班级导出', roles: ['COU', 'ADMIN'] },
+    },
+    {
       path: '/changes',
       name: 'changes',
       component: () => import('@/views/ChangeLogView.vue'),
