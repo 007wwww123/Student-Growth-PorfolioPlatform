@@ -111,6 +111,13 @@ const router = createRouter({
       meta: { title: '学生导入', roles: ['COU', 'ADMIN'] },
     },
     {
+      path: '/admin/audit',
+      name: 'admin-audit',
+      component: () => import('@/views/admin/AuditView.vue'),
+      // 管理员专属：审计与登录日志查询
+      meta: { title: '审计日志', roles: ['ADMIN'] },
+    },
+    {
       path: '/admin/org',
       name: 'admin-org',
       component: () => import('@/views/admin/OrgView.vue'),
