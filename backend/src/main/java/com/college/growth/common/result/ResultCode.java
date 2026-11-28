@@ -32,6 +32,7 @@ public enum ResultCode {
     FIELD_VALIDATION_FAILED("EC-42201", 422, "字段校验未通过"),
     REQUIRED_FIELD_MISSING("EC-42202", 422, "必填内容未填写"),
     RETURN_REASON_TOO_SHORT("EC-42203", 422, "退回理由不少于 10 字"),
+    IMPORT_TEMPLATE_INVALID("EC-42210", 422, "导入模板或文件格式不正确"),
 
     NOT_IMPLEMENTED("EC-50000", 501, "该功能尚未实现"),
     SYSTEM_ERROR("EC-50001", 500, "系统繁忙，请稍后重试"),

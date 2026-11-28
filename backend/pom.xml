@@ -58,6 +58,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Excel 导入导出（F-09/F-10）：流式读写的底层实现，禁止全量加载大文件 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

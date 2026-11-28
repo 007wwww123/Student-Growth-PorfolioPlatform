@@ -1322,6 +1322,99 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/import/students/template:
+    get:
+      tags: [系统管理]
+      operationId: downloadStudentImportTemplate
+      summary: 下载学生导入模板（xlsx）
+      responses:
+        '200':
+          description: xlsx 文件
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /admin/import/students/preview:
+    post:
+      tags: [系统管理]
+      operationId: previewStudentImport
+      summary: 学生导入预览（前 20 行 + 校验结果）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 预览结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+        '422':
+          description: 模板/文件格式不正确（EC-42210）
+
+  /admin/import/students/execute:
+    post:
+      tags: [系统管理]
+      operationId: executeStudentImport
+      summary: 执行学生导入（部分成功，失败行进入回执）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/import/tasks:
+    get:
+      tags: [系统管理]
+      operationId: listImportTasks
+      summary: 最近 20 条导入任务
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/import/tasks/{id}/receipt:
+    get:
+      tags: [系统管理]
+      operationId: downloadImportReceipt
+      summary: 下载错误回执（xlsx）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: xlsx 回执
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
   /admin/fields:
     get:
       tags: [系统管理]
