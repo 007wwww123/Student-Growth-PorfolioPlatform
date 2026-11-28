@@ -1,10 +1,10 @@
 package com.college.growth.life.controller;
 
+import com.college.growth.common.result.Result;
 import com.college.growth.life.common.LifeConstants;
 import com.college.growth.life.dto.LifeSectionSaveDTO;
 import com.college.growth.life.service.LifeSectionService;
 import com.college.growth.life.vo.LifeSectionVO;
-import com.college.growth.common.result.Result;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,8 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 板块四 生活心理（LIFE）接口入口。
  *
- * <p>对应需求文档 4.5 字段清单与 2.2 主流程 S-1。当前仅提供路由与返回结构，
- * 具体渲染、校验、状态流转在 Service 层实现。</p>
+ * <p>路径与板块一至三完全一致（{@code /sections/life/{studentId}}），
+ * 前端 {@code SectionShell} 按 {@code code} 复用同一套页面与请求封装：
+ * 查详情（S-1-03）→ 存草稿（S-1-04）→ 提交（S-1-05）→ 撤回（S-1-09）。
+ * 差异只在字段清单，字段由 {@code arc_field_def} 下发。</p>
  */
 @RestController
 @RequestMapping(LifeConstants.API_BASE_PATH)
@@ -34,7 +36,7 @@ public class LifeSectionController {
     /** 查询板块详情（S-1-03）：按 arc_field_def 渲染表单，逐字段计算可见与可编辑。 */
     @GetMapping("/{studentId}")
     public Result<LifeSectionVO> detail(@PathVariable Long studentId,
-                                            @RequestParam(required = false) String academicYear) {
+                                        @RequestParam(required = false) String academicYear) {
         return Result.success(lifeSectionService.detail(studentId, academicYear));
     }
 
@@ -49,8 +51,16 @@ public class LifeSectionController {
     /** 提交板块（S-1-05）：校验必填齐全后由 DRAFT / RETURNED 转为 SUBMITTED。 */
     @PostMapping("/{studentId}/submit")
     public Result<Void> submit(@PathVariable Long studentId,
-                               @RequestParam String academicYear) {
+                               @RequestParam(required = false) String academicYear) {
         lifeSectionService.submit(studentId, academicYear);
+        return Result.success();
+    }
+
+    /** 撤回提交（S-1-09）：仅学生本人，全生命周期一次；第二次返回 EC-40903。 */
+    @PostMapping("/{studentId}/withdraw")
+    public Result<Void> withdraw(@PathVariable Long studentId,
+                                 @RequestParam(required = false) String academicYear) {
+        lifeSectionService.withdraw(studentId, academicYear);
         return Result.success();
     }
 }

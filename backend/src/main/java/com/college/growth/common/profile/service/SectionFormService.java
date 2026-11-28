@@ -2,6 +2,7 @@ package com.college.growth.common.profile.service;
 
 import com.college.growth.academic.util.AcademicSectionUtils;
 import com.college.growth.interest.util.InterestSectionUtils;
+import com.college.growth.life.util.LifeSectionUtils;
 import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.ProfileStatusEnum;
@@ -104,7 +105,12 @@ public class SectionFormService {
                 throw new BusinessException(ResultCode.FIELD_NOT_EDITABLE, "无权修改：" + def.getFieldName());
             }
             Object value = entry.getValue();
-            if (value != null && !(value instanceof String) && !(value instanceof List<?>)) {
+            // NUMBER 字段允许直接传 JSON 数字：契约上它就是整数/小数（openapi 里 stressScore 为 integer），
+            // 前端按控件类型发 Number 是最自然的写法；强制字符串会让「填 3 报类型错误」变成必然。
+            // 其余非文本类型仍然只收字符串或数组，避免对象/布尔混进 value_text。
+            boolean numericField = "NUMBER".equals(def.getFieldType());
+            if (value != null && !(value instanceof String) && !(value instanceof List<?>)
+                    && !(numericField && value instanceof Number)) {
                 throw new BusinessException(ResultCode.FIELD_VALIDATION_FAILED, "字段值类型错误：" + def.getFieldName());
             }
             boolean listField = "STRING_LIST".equals(def.getValidator());
@@ -224,6 +230,7 @@ public class SectionFormService {
         switch (section) {
             case ACADEMIC -> AcademicSectionUtils.validateFields(values);
             case INTEREST -> InterestSectionUtils.validateFields(values);
+            case LIFE -> LifeSectionUtils.validateFields(values);
             default -> throw new IllegalArgumentException("不支持的表单：" + section);
         }
     }
