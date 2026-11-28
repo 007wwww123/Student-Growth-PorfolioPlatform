@@ -28,11 +28,11 @@ assert.ok(adminGranted.includes('总览') && adminGranted.includes('审核工作
 assert.ok(adminGranted.includes('字段权限配置'), '持授权管理员应有权限配置')
 assert.ok(adminGranted.includes('组织架构') && adminGranted.includes('账号管理') && adminGranted.includes('字段定义') && adminGranted.includes('学生导入'), '持授权管理员应有字段定义、导入与组织账号管理')
 assert.ok(!adminGranted.includes('批量建档') && !adminGranted.includes('毕业归档'), '管理员不应有建档/归档')
-assert.equal(adminGranted.length, 14, `持授权管理员菜单应为 14 项，实际 ${adminGranted.length}`)
+assert.equal(adminGranted.length, 15, `持授权管理员菜单应为 15 项，实际 ${adminGranted.length}`)
 
 // 无授权管理员：只剩四项系统管理（其余入口必然 403 或空视图，不能出现死链）
 const adminNoGrant = labels('ADMIN', false)
-assert.deepEqual(adminNoGrant, ['字段权限配置', '字段定义', '学生导入', '组织架构', '账号管理', '审计日志'], '无授权管理员应只剩系统管理')
+assert.deepEqual(adminNoGrant, ['字段权限配置', '字段定义', '学生导入', '组织架构', '账号管理', '临时授权', '审计日志'], '无授权管理员应只剩系统管理')
 assert.equal(navGroupsOf('ADMIN', false).length, 1, '无授权管理员应只有一组')
 assert.equal(navGroupsOf('ADMIN', false)[0].title, '系统管理', '分组标题应为系统管理')
 
@@ -47,7 +47,7 @@ for (const [role, grant] of [['STU', false], ['COU', false], ['ADMIN', true], ['
 
 console.log('PASS  学生菜单：六大板块，无总览/权限配置')
 console.log('PASS  辅导员菜单：总览 + 六板块 + 审核 + 档案管理，共 11 项')
-console.log('PASS  持授权管理员：总览 + 六板块 + 审核 + 六项系统管理，共 14 项')
-console.log('PASS  无授权管理员：仅六项系统管理，无死链')
+console.log('PASS  持授权管理员：总览 + 六板块 + 审核 + 七项系统管理，共 15 项')
+console.log('PASS  无授权管理员：仅七项系统管理，无死链')
 console.log('PASS  菜单路径唯一且为绝对路径')
 console.log('\n合计 5 项，失败 0 项')

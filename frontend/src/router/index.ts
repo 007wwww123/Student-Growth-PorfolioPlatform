@@ -111,6 +111,12 @@ const router = createRouter({
       meta: { title: '学生导入', roles: ['COU', 'ADMIN'] },
     },
     {
+      path: '/admin/temp-grants',
+      name: 'admin-temp-grants',
+      component: () => import('@/views/admin/TempGrantView.vue'),
+      meta: { title: '临时授权', roles: ['ADMIN'] },
+    },
+    {
       path: '/admin/audit',
       name: 'admin-audit',
       component: () => import('@/views/admin/AuditView.vue'),
