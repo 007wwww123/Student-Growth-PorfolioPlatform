@@ -7,7 +7,9 @@
  *
  * <p>表单值通过 {@code form} 对象就地读写，父组件只负责把接口返回的 fields 铺进去。</p>
  */
+import { ref } from 'vue'
 import type { RenderField } from '@/fieldMeta'
+import { downloadFile, uploadFile } from '@/api/files'
 
 const props = withDefaults(
   defineProps<{
@@ -21,11 +23,39 @@ const props = withDefaults(
     revealable?: boolean
     /** 强制只读，用于审核页，避免依赖每个字段的 editable 位 */
     readonly?: boolean
+    /** 附件上传归属学生；为空时只显示已上传文件 */
+    studentId?: number
   }>(),
   { errors: () => ({}), revealed: () => ({}), revealable: false, readonly: false },
 )
 
 const emit = defineEmits<{ reveal: [key: string] }>()
+
+const uploading = ref<string | null>(null)
+
+async function onFile(field: RenderField, event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || props.studentId == null) return
+  uploading.value = field.key
+  try {
+    const meta = await uploadFile(file, props.studentId, field.fieldCode === "basic.photo" ? "BASIC_PHOTO" : "OTHER")
+    props.form[field.key] = String(meta.id)
+  } finally {
+    uploading.value = null
+    input.value = ""
+  }
+}
+
+function fileIdOf(field: RenderField): number | null {
+  const value = Number(props.form[field.key])
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+async function onDownload(field: RenderField): Promise<void> {
+  const id = fileIdOf(field)
+  if (id != null) await downloadFile(id)
+}
 
 function inputType(type: string): string {
   if (type === 'number') return 'number'
@@ -74,6 +104,24 @@ function canReveal(field: RenderField): boolean {
           :disabled="disabled(field)"
         />
 
+        <div v-else-if="field.type === 'file'" class="file-field">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            :disabled="disabled(field) || uploading === field.key"
+            @change="onFile(field, $event)"
+          />
+          <span v-if="uploading === field.key" class="field__hint">上传中…</span>
+          <button
+            v-else-if="fileIdOf(field)"
+            type="button"
+            class="field__file-link"
+            @click="onDownload(field)"
+          >
+            下载附件 #{{ fileIdOf(field) }}
+          </button>
+        </div>
+
         <input
           v-else-if="revealed[field.key]"
           :id="`field-${field.key}`"
@@ -109,7 +157,7 @@ function canReveal(field: RenderField): boolean {
         {{ revealed[field.key] ? '明文已显示，本次查看已记录审计' : '敏感字段，查看明文会记录审计日志' }}
       </p>
       <p v-else-if="field.type === 'file'" class="field__hint">
-        附件上传暂未开放，请在学校系统中维护
+        支持 JPG/PNG/WebP/PDF，单文件不超过 10MB
       </p>
       <p v-else-if="field.lockHint && !readonly" class="field__hint">{{ field.lockHint }}</p>
       <p v-else-if="field.type === 'tags'" class="field__hint">多个值用逗号分隔</p>

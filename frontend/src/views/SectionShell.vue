@@ -367,7 +367,7 @@ onBeforeUnmount(() => clearInterval(autoSaveTimer))
       <PendingHint :items="pendingItems" />
 
       <form class="board__form" @submit.prevent="onSave">
-        <FieldList :fields="fields" :form="form" :errors="fieldHints" :readonly="isAdmin" />
+        <FieldList :fields="fields" :form="form" :errors="fieldHints" :readonly="isAdmin" :student-id="studentId" />
 
         <div class="board__actions">
           <!-- 可编辑：草稿 / 已退回 -->
