@@ -45,7 +45,7 @@
 | Flyway 全新库 | 成功，24 张业务表 + history，48 字段 |
 | Flyway 存量库 | baseline 0 + V1，4 名学生数据保留 |
 | 五容器 compose | 配置校验通过；未实际启动 |
-| CI | workflow 已提交；未在 GitHub Actions 实际执行 |
+| CI | 已执行通过：backend / frontend / compose-config 三个 job success |
 
 ## 四、未完成 / 需签字
 
