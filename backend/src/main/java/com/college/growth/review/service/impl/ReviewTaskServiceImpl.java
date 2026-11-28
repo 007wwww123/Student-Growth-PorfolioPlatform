@@ -11,6 +11,7 @@ import com.college.growth.common.exception.BusinessException;
 import com.college.growth.common.org.OrgConstants;
 import com.college.growth.common.org.entity.OrgClass;
 import com.college.growth.common.org.mapper.OrgClassMapper;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.result.PageResult;
 import com.college.growth.common.result.ResultCode;
@@ -161,8 +162,10 @@ public class ReviewTaskServiceImpl implements ReviewTaskService {
         List<StudentFieldRow> rows = reviewTaskMapper.selectStudentFields(studentIds, LIST_FIELDS, year);
         Map<Long, Map<String, String>> result = new HashMap<>();
         for (StudentFieldRow row : rows) {
+            String value = "basic.idCard".equals(row.getFieldCode())
+                    ? IdCardCrypto.decrypt(row.getValueText()) : row.getValueText();
             result.computeIfAbsent(row.getStudentId(), key -> new HashMap<>())
-                    .put(row.getFieldCode(), row.getValueText());
+                    .put(row.getFieldCode(), value);
         }
         return result;
     }

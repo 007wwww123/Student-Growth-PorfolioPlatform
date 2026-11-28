@@ -6,6 +6,7 @@ import com.college.growth.common.field.FieldValues;
 import com.college.growth.common.field.entity.ArcFieldDef;
 import com.college.growth.common.profile.entity.ArcProfileItem;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.util.TextUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -26,6 +27,8 @@ public final class FieldValueCodec {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private static final String ID_CARD_FIELD = "basic.idCard";
+
     private FieldValueCodec() {
     }
 
@@ -37,7 +40,7 @@ public final class FieldValueCodec {
         if (FieldTypeEnum.fromCode(def.getFieldType()).isJsonStored()) {
             return parseJson(item.getValueJson());
         }
-        return item.getValueText();
+        return plainText(def, item.getValueText());
     }
 
     /** 读取待确认值；无记录返回 null。 */
@@ -48,7 +51,7 @@ public final class FieldValueCodec {
         if (FieldTypeEnum.fromCode(def.getFieldType()).isJsonStored()) {
             return parseJson(item.getPendingJson());
         }
-        return item.getPendingText();
+        return plainText(def, item.getPendingText());
     }
 
     /** 写入正式值，并清掉另一种存储列，避免两列同时有值。 */
@@ -57,7 +60,7 @@ public final class FieldValueCodec {
             item.setValueJson(toJson(value));
             item.setValueText(null);
         } else {
-            item.setValueText(toText(value));
+            item.setValueText(storedText(def, toText(value)));
             item.setValueJson(null);
         }
     }
@@ -74,9 +77,17 @@ public final class FieldValueCodec {
             item.setPendingJson(toJson(value));
             item.setPendingText(null);
         } else {
-            item.setPendingText(toText(value));
+            item.setPendingText(storedText(def, toText(value)));
             item.setPendingJson(null);
         }
+    }
+
+    private static String storedText(ArcFieldDef def, String value) {
+        return ID_CARD_FIELD.equals(def.getFieldCode()) ? IdCardCrypto.encrypt(value) : value;
+    }
+
+    private static String plainText(ArcFieldDef def, String value) {
+        return ID_CARD_FIELD.equals(def.getFieldCode()) ? IdCardCrypto.decrypt(value) : value;
     }
 
     /** 清空待确认区：确认或驳回后都必须调用，否则下次修改会被误判为「已有待确认值」。 */
