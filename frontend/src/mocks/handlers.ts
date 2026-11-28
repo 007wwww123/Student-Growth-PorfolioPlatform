@@ -126,6 +126,8 @@ function userPayload(who: MockIdentity) {
     roleLabel: roleLabelOf(who.role),
     studentId: who.studentId,
     tempGrant: who.tempGrant,
+    // mock 账号不走首次强制改密；真实后端的该标记由 sys_user.must_change_password 决定
+    mustChangePassword: false,
   }
 }
 
@@ -165,6 +167,7 @@ export const handlers = [
         tokenType: 'Bearer',
         expiresIn: MOCK_TTL_SECONDS,
         user: userPayload(result.user),
+        mustChangePassword: false,
       })
     })
   }),
@@ -174,6 +177,41 @@ export const handlers = [
   ),
 
   http.post(`${API_BASE_PATH}/auth/logout`, ({ request }) => withAuth(request, () => ok())),
+
+  /**
+   * 修改本人密码（F-01）。
+   *
+   * <p>mock 只校验强度与「原密码非空」，不保存新密码——重启后仍是演示口令。
+   * 响应结构与后端一致：返回新 token 与 user，前端直接覆盖本地会话。</p>
+   */
+  http.post(`${API_BASE_PATH}/auth/password`, async ({ request }) => {
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    return withAuth(request, (who) => {
+      const oldPassword = String(body.oldPassword ?? '')
+      const newPassword = String(body.newPassword ?? '')
+      if (!oldPassword) {
+        return fail('EC-42206', '原密码不正确', 422)
+      }
+      const kinds = [/[A-Z]/, /[a-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((rule) =>
+        rule.test(newPassword),
+      ).length
+      if (newPassword.length < 8 || newPassword.length > 20 || kinds < 3) {
+        return fail('EC-42204', '密码需包含大写字母、小写字母、数字、符号中的至少三类', 422)
+      }
+      return ok({
+        token: tokenOf(request),
+        tokenType: 'Bearer',
+        expiresIn: MOCK_TTL_SECONDS,
+        user: { ...userPayload(who), mustChangePassword: false },
+        mustChangePassword: false,
+      })
+    })
+  }),
 
   // ------------------------------------------------------------------
   // 站内通知：顶栏铃铛在登录后立刻请求未读数。

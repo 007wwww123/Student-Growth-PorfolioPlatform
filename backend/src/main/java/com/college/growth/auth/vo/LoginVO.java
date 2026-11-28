@@ -18,4 +18,12 @@ public class LoginVO {
     private long expiresIn;
 
     private UserVO user;
+
+    /**
+     * 是否必须先改密（BR-A04 / AC-004）。
+     *
+     * <p>登录本身成功、令牌也照发：不改密就只能访问改密接口，
+     * 否则「先登录才能改密」这条链路走不通。</p>
+     */
+    private boolean mustChangePassword;
 }

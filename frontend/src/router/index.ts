@@ -162,6 +162,13 @@ const router = createRouter({
       meta: { title: '账号管理', roles: ['ADMIN'] },
     },
     {
+      path: '/change-password',
+      name: 'change-password',
+      component: () => import('@/views/ChangePasswordView.vue'),
+      // 登录后即可访问：首次登录未改密的账号只能停在这里（BR-A04）
+      meta: { title: '修改密码' },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),
@@ -189,6 +196,17 @@ router.beforeEach((to) => {
   if (to.meta.public !== true && !loggedIn) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
+
+  /**
+   * 首次登录未改密（BR-A04 / AC-004）：除改密页外一律拦回。
+   *
+   * <p>服务端同样有拦截（EC-40305），前端这层只是别让用户点了必然失败；
+   * 改密成功后 {@code saveSession} 会把标记清掉，守卫随即放行。</p>
+   */
+  if (loggedIn && getUser()?.mustChangePassword === true && to.name !== 'change-password') {
+    return { name: 'change-password' }
+  }
+
   if (to.name === 'login' && loggedIn) {
     return { name: 'home' }
   }

@@ -38,8 +38,24 @@ class JwtServiceTest {
         assertThat(claims.tempGrant()).isFalse();
         assertThat(claims.displayName()).isEqualTo("李明");
         assertThat(claims.jti()).isNotBlank();
+        assertThat(claims.tokenVersion()).isZero();
+        assertThat(claims.mustChangePassword()).isFalse();
         assertThat(claims.expiresAt()).isAfter(claims.issuedAt());
         assertThat(jwt.remainingSeconds(claims)).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("令牌携带版本号与强制改密位（BR-A04 / BR-A06）")
+    void versionAndPasswordChangeFlagIncluded() {
+        JwtService jwt = new JwtService(objectMapper, SECRET, 8);
+        SysUser user = user();
+        user.setTokenVersion(7);
+        user.setMustChangePassword(1);
+
+        JwtService.Claims claims = jwt.parse(jwt.issue(user));
+
+        assertThat(claims.tokenVersion()).isEqualTo(7);
+        assertThat(claims.mustChangePassword()).isTrue();
     }
 
     @Test

@@ -54,9 +54,17 @@ public class JwtService {
         this.ttlSeconds = ttlHours * 3600L;
     }
 
-    /** 令牌载荷：只含身份与展示信息。 */
-    public record Claims(Long userId, UserRoleEnum role, boolean tempGrant,
-                         String displayName, String jti, Instant issuedAt, Instant expiresAt) {
+    /**
+     * 令牌载荷：只含身份与展示信息。
+     *
+     * <p>{@code tokenVersion} 与 {@code mustChangePassword} 是 F-01 新增的两个判定位：
+     * 前者让改密/改角色后的旧令牌在下一次请求即失效（BR-A06），后者让首次登录
+     * 未改密的账号只能访问改密接口（BR-A04）。两者都由 {@code JwtAuthFilter}
+     * 与数据库当前值比对后生效，令牌里的值本身不作为权限依据。</p>
+     */
+    public record Claims(Long userId, UserRoleEnum role, boolean tempGrant, int tokenVersion,
+                         boolean mustChangePassword, String displayName, String jti,
+                         Instant issuedAt, Instant expiresAt) {
     }
 
     /** 校验失败原因，决定返回 EC-40101 还是 EC-40102。 */
@@ -82,6 +90,8 @@ public class JwtService {
         payload.put("sub", String.valueOf(user.getId()));
         payload.put("role", user.getRole());
         payload.put("grant", user.getTempGrant() != null && user.getTempGrant() == 1);
+        payload.put("ver", user.getTokenVersion() == null ? 0 : user.getTokenVersion());
+        payload.put("mcp", user.getMustChangePassword() != null && user.getMustChangePassword() == 1);
         payload.put("name", user.getDisplayName());
         payload.put("jti", java.util.UUID.randomUUID().toString().replace("-", ""));
         payload.put("iat", now.getEpochSecond());
@@ -148,6 +158,8 @@ public class JwtService {
                 asLong(payload.get("sub")),
                 parseRole(payload.get("role")),
                 Boolean.TRUE.equals(payload.get("grant")),
+                asInt(payload.get("ver")),
+                Boolean.TRUE.equals(payload.get("mcp")),
                 payload.get("name") == null ? null : String.valueOf(payload.get("name")),
                 payload.get("jti") == null ? "" : String.valueOf(payload.get("jti")),
                 Instant.ofEpochSecond(asLong(payload.get("iat"))),
@@ -179,6 +191,21 @@ public class JwtService {
         }
         try {
             return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            throw new JwtException("令牌字段格式不正确", false);
+        }
+    }
+
+    /** 版本号缺失按 0 处理：升级前签发的旧令牌仍然可用，不至于把人全部踢下线。 */
+    private int asInt(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
         } catch (NumberFormatException ex) {
             throw new JwtException("令牌字段格式不正确", false);
         }

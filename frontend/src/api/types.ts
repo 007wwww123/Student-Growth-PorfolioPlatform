@@ -58,6 +58,8 @@ export interface SessionUser {
   studentId?: number
   /** 管理员是否持临时只读授权 */
   tempGrant: boolean
+  /** 首次登录未改密：为 true 时只能访问改密页（BR-A04） */
+  mustChangePassword?: boolean
 }
 
 /** 登录结果，对应后端 LoginVO。 */
@@ -67,6 +69,8 @@ export interface LoginResult {
   /** 有效期秒数 */
   expiresIn: number
   user: SessionUser
+  /** 首次登录未改密：登录本身成功，但必须先改密才能访问其它页面 */
+  mustChangePassword?: boolean
 }
 
 /**

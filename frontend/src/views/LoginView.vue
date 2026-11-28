@@ -40,6 +40,11 @@ async function onSubmit(): Promise<void> {
   try {
     const result = await login(username.value.trim(), password.value)
     saveSession(result.token, result.user)
+    // 首次登录（初始密码）先走改密，改完再回原页面（BR-A04 / AC-004）
+    if (result.mustChangePassword || result.user.mustChangePassword) {
+      await router.replace({ name: 'change-password' })
+      return
+    }
     await router.replace(redirect.value)
   } catch (e) {
     if (isApiError(e)) {
