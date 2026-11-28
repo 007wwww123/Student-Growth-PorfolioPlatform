@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { logout } from '@/api/auth'
 import { clearSession, getUser } from '@/auth/session'
+import NotificationBell from '@/components/NotificationBell.vue'
 
 /**
  * 顶部固定栏。
@@ -83,6 +84,7 @@ onBeforeUnmount(clearCloseTimer)
     </div>
 
     <div v-if="user" class="topbar__right">
+      <NotificationBell />
       <div class="account" @mouseenter="expand" @mouseleave="scheduleCollapse">
         <button
           type="button"

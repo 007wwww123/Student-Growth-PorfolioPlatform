@@ -28,6 +28,7 @@ import com.college.growth.common.util.TextUtils;
 import com.college.growth.auth.entity.SysUser;
 import com.college.growth.auth.mapper.SysUserMapper;
 import com.college.growth.grant.entity.SysApproval;
+import com.college.growth.notification.service.NotificationService;
 import com.college.growth.grant.mapper.SysApprovalMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -75,10 +76,13 @@ public class ChangeAppealServiceImpl implements ChangeAppealService {
 
     private final AuditLogService auditLogService;
 
+    private final NotificationService notificationService;
+
     public ChangeAppealServiceImpl(ArcChangeLogMapper changeLogMapper, ArcFieldDefMapper fieldDefMapper,
                                    StuStudentMapper studentMapper, SysUserMapper userMapper,
                                    SysApprovalMapper approvalMapper, OrgClassMapper orgClassMapper,
-                                   StudentClassService studentClassService, AuditLogService auditLogService) {
+                                   StudentClassService studentClassService, AuditLogService auditLogService,
+                                   NotificationService notificationService) {
         this.changeLogMapper = changeLogMapper;
         this.fieldDefMapper = fieldDefMapper;
         this.studentMapper = studentMapper;
@@ -87,6 +91,7 @@ public class ChangeAppealServiceImpl implements ChangeAppealService {
         this.orgClassMapper = orgClassMapper;
         this.studentClassService = studentClassService;
         this.auditLogService = auditLogService;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -189,6 +194,8 @@ public class ChangeAppealServiceImpl implements ChangeAppealService {
         appeal.setApprovedAt(LocalDateTime.now());
         approvalMapper.updateById(appeal);
         audit(appeal, AuditLogService.ACTION_APPROVE, "申诉通过：" + nullSafe(remark));
+        notificationService.notify(appeal.getStudentId(), "APPEAL_RESULT", "申诉已通过",
+                nullSafe(remark), "APPEAL", appeal.getId());
         return toAppealVO(appeal);
     }
 
@@ -207,6 +214,8 @@ public class ChangeAppealServiceImpl implements ChangeAppealService {
         appeal.setApprovedAt(LocalDateTime.now());
         approvalMapper.updateById(appeal);
         audit(appeal, AuditLogService.ACTION_REJECT, "申诉拒绝：" + remark.trim());
+        notificationService.notify(appeal.getStudentId(), "APPEAL_RESULT", "申诉被拒绝",
+                remark.trim(), "APPEAL", appeal.getId());
         return toAppealVO(appeal);
     }
 

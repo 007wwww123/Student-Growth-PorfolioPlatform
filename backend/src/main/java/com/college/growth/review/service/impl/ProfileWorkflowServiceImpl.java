@@ -14,6 +14,7 @@ import com.college.growth.common.result.FieldErrorDetail;
 import com.college.growth.common.result.ResultCode;
 import com.college.growth.common.util.TextUtils;
 import com.college.growth.completion.service.CompletionService;
+import com.college.growth.notification.service.NotificationService;
 import com.college.growth.review.common.ReviewConstants;
 import com.college.growth.review.service.ProfileWorkflowService;
 import java.time.LocalDateTime;
@@ -47,18 +48,22 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
 
     private final CompletionService completionService;
 
+    private final NotificationService notificationService;
+
     public ProfileWorkflowServiceImpl(ArcProfileMapper profileMapper,
                                       ChangeLogService changeLogService,
                                       AuditLogService auditLogService,
                                       StudentClassService studentClassService,
                                       ProfileCompletenessService completenessService,
-                                      CompletionService completionService) {
+                                      CompletionService completionService,
+                                      NotificationService notificationService) {
         this.profileMapper = profileMapper;
         this.changeLogService = changeLogService;
         this.auditLogService = auditLogService;
         this.studentClassService = studentClassService;
         this.completenessService = completenessService;
         this.completionService = completionService;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -89,6 +94,9 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
         auditLogService.record(AuditLogService.BIZ_STATUS_CHANGE, AuditLogService.TARGET_PROFILE,
                 profile.getId(), profile.getStudentId(), profile.getSectionCode(), null,
                 ReviewConstants.ACTION_SUBMIT, note);
+        notificationService.notifyCounselor(profile.getStudentId(), profile.getAcademicYear(),
+                "REVIEW_SUBMITTED", "新的待审板块",
+                profile.getSectionCode() + " 已提交，请审核", "PROFILE", profile.getId());
         refreshCompleted(profile.getStudentId(), profile.getAcademicYear());
     }
 
@@ -148,6 +156,8 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
         auditLogService.record(AuditLogService.BIZ_REVIEW, AuditLogService.TARGET_PROFILE,
                 profile.getId(), profile.getStudentId(), profile.getSectionCode(), null,
                 ReviewConstants.ACTION_APPROVE, note);
+        notificationService.notify(profile.getStudentId(), "REVIEW_APPROVED", "板块审核通过",
+                profile.getSectionCode() + " 已通过审核", "PROFILE", profile.getId());
         refreshCompleted(profile.getStudentId(), profile.getAcademicYear());
     }
 
@@ -185,6 +195,8 @@ public class ProfileWorkflowServiceImpl implements ProfileWorkflowService {
         auditLogService.record(AuditLogService.BIZ_REVIEW, AuditLogService.TARGET_PROFILE,
                 profile.getId(), profile.getStudentId(), profile.getSectionCode(), null,
                 ReviewConstants.ACTION_REJECT, note);
+        notificationService.notify(profile.getStudentId(), "REVIEW_REJECTED", "板块被退回",
+                profile.getSectionCode() + " 被退回：" + note, "PROFILE", profile.getId());
         refreshCompleted(profile.getStudentId(), profile.getAcademicYear());
     }
 

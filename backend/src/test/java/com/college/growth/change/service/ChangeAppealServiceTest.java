@@ -23,6 +23,7 @@ import com.college.growth.common.result.ResultCode;
 import com.college.growth.common.student.mapper.StuStudentMapper;
 import com.college.growth.grant.entity.SysApproval;
 import com.college.growth.grant.mapper.SysApprovalMapper;
+import com.college.growth.notification.service.NotificationService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,13 +51,14 @@ class ChangeAppealServiceTest {
     @Mock private OrgClassMapper orgClassMapper;
     @Mock private StudentClassService studentClassService;
     @Mock private AuditLogService auditLogService;
+    @Mock private NotificationService notificationService;
 
     private ChangeAppealServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new ChangeAppealServiceImpl(changeLogMapper, fieldDefMapper, studentMapper, userMapper,
-                approvalMapper, orgClassMapper, studentClassService, auditLogService);
+                approvalMapper, orgClassMapper, studentClassService, auditLogService, notificationService);
         UserContext.set(new CurrentUser(1001L, UserRoleEnum.STU, false));
     }
 
