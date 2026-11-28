@@ -157,7 +157,7 @@ tags:
   - name: 职业规划
     description: 就业意向、目标行业岗位、实施计划，板块编码 `career`，字段前缀 `career.`
   - name: 导师寄语
-    description: 导师谈话记录与建议，板块编码 `mentor`，字段前缀 `mentor.`；学生只读
+    description: 导师谈话记录时间线，板块编码 `mentor`，字段前缀 `mentor.`；辅导员追加、学生反馈一次
   - name: 平台公共
     description: 统一响应结构与错误码
   - name: 管理员
@@ -252,6 +252,10 @@ paths:
         `arc_field_def` 与档案状态共同决定。
 
         六个板块共用本接口，路径中的 `code` 决定板块。
+
+        `code=mentor` 时返回结构仍是同一信封，但 `fields` 恒为空 Map：需求 4.7 规定本板块
+        没有主表字段值，全部内容在 `arc_mentor_note` 子表。详情额外带 `notes`（按 `talkDate`
+        倒序）与 `canAppend`；学生端的每条 `notes` 不含 `internalRemark` 与 `counselorId`。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
@@ -353,6 +357,9 @@ paths:
         未出现的字段按「不修改」处理，传 `null` 表示清空（必填项清空后无法提交）。
         学生首填、修改或清空 `STU_CFM` 字段均进入待确认区。fields 始终返回正式值；首填确认前为空。
         使用 fieldMeta.pendingConfirm 区分无申请与申请清空；清空申请的候选值为空（BR-F06）。
+
+        `code=mentor` 例外：本板块没有主表字段值，`fields` 只允许为空对象；
+        传非空字段返回 `EC-40003`，请改用 `POST /sections/mentor/{studentId}/notes`。
       parameters:
         - $ref: '#/components/parameters/SectionCode'
         - $ref: '#/components/parameters/StudentId'
@@ -492,6 +499,98 @@ paths:
           $ref: '#/components/responses/InternalError'
         '501':
           $ref: '#/components/responses/NotImplemented'
+
+  /sections/mentor/{studentId}/notes:
+    post:
+      tags: [导师寄语]
+      operationId: appendMentorNote
+      summary: 追加一条谈话记录
+      description: |
+        仅该班现任辅导员可调用（`archive:mentor:append`），学生与管理员返回 `EC-40303` / `EC-40302`。
+        需求 4.7：本板块没有主表字段值，全部内容在 `arc_mentor_note` 子表，一行一次谈话；
+        **只可追加，不可编辑、不可删除**（BR-S07），发现记录有误时追加一条更正记录并注明「更正第 N 条」。
+
+        板块实例（`arc_profile` 中的 MENTOR 行）不存在时自动创建为 DRAFT；`LOCKED` 状态拒绝追加。
+        必填、长度、枚举、日期区间由 `arc_field_def` 与板块规则执行，错误码 `EC-42201` / `EC-42202`。
+        追加后重算完成度并同时写 `arc_change_log` 与 `sys_audit_log`（与业务同一事务）。
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorNoteCreateDTO'
+      responses:
+        '200':
+          description: 追加成功，返回该条记录的辅导员视角
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MentorNoteVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /sections/mentor/{studentId}/notes/{noteId}/feedback:
+    post:
+      tags: [导师寄语]
+      operationId: submitMentorFeedback
+      summary: 提交学生反馈
+      description: |
+        仅学生本人可调用（`archive:mentor:feedback`）。一条谈话只接受一条反馈，
+        `feedback_at` 非空即锁定，**不随板块重提解锁**；重复提交返回 `EC-40902`。
+        反馈不改变板块状态，也不写入主表字段值。
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+        - name: noteId
+          in: path
+          required: true
+          description: 谈话记录 ID
+          schema:
+            type: integer
+            format: int64
+            example: 5001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorFeedbackDTO'
+      responses:
+        '200':
+          description: 提交成功，返回更新后的学生视角记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MentorNoteVO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /sections/{code}/{studentId}/sync-student:
     post:
@@ -1776,8 +1875,34 @@ components:
 
     MentorSectionSaveDTO:
       type: object
-      description: 导师寄语保存请求，对应 `MentorSectionSaveDTO`；仅导师角色可写
+      description: |
+        导师寄语保存请求，对应 `MentorSectionSaveDTO`。与其余五个板块共用「信封 + fields」契约，
+        但本板块**没有主表字段值**（需求 4.7），谈话内容在 `arc_mentor_note` 子表，
+        通过 `POST /sections/mentor/{studentId}/notes` 追加。
+        因此 `fields` 只允许为空；传非空字段返回 `EC-40003` 并提示改用追加接口。
+        保留该端点是为了六板块 GET/PUT/submit/withdraw 结构一致。
       required: [academicYear]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
+        fields:
+          type: object
+          additionalProperties: true
+          description: 主表字段值；MENTOR 恒为空对象
+          example: {}
+      example:
+        academicYear: 2025-2026-1
+        fields: {}
+
+    MentorNoteCreateDTO:
+      type: object
+      description: |
+        追加一条谈话记录（仅本班辅导员，`archive:mentor:append`）。
+        只追加、不提供修改/删除（BR-S07）。必填与长度由 `arc_field_def` 的
+        `mentor.talkDate` / `mentor.topic` / `mentor.advice` 等字段定义执行，
+        错误码统一为 `EC-42201` / `EC-42202`。
+      required: [academicYear, talkDate, topic, advice]
       properties:
         academicYear:
           type: string
@@ -1785,22 +1910,148 @@ components:
         talkDate:
           type: string
           format: date
-          description: 谈话日期
-          example: '2026-11-10'
+          description: 谈话日期，不晚于今天且不早于入学日期
+          example: '2026-04-18'
         topic:
           type: string
-          description: 谈话主题
+          description: 主题英文码，命中字典 talk_topic
+          enum: [ACADEMIC, CAREER, PSYCH, DAILY]
+          example: ACADEMIC
         advice:
           type: string
-          description: 导师建议
+          description: 建议与寄语，20–1000 字，学生可见
+          example: 本学期重点补齐算法基础，建议参加校赛练手
         starLevel:
           type: integer
-          description: 星级评分，1-5
-          minimum: 1
-          maximum: 5
+          description: 重要标记 0 无 / 1 ★ / 2 ★★
+          minimum: 0
+          maximum: 2
+          example: 1
+        internalRemark:
+          type: string
+          description: 辅导员内部备注，不超过 500 字；学生端不返回
+          example: 家庭经济困难，需留意勤工助学名额
+
+    MentorFeedbackDTO:
+      type: object
+      description: 学生反馈入参（`archive:mentor:feedback`）；每条谈话仅可提交一次，提交后锁定
+      required: [feedback]
+      properties:
+        academicYear:
+          type: string
+          example: 2025-2026-1
         feedback:
           type: string
-          description: 学生反馈
+          description: 学生反馈与承诺，不超过 500 字
+          example: 已报名校赛，每周刷题 20 道
+
+    MentorNoteVO:
+      type: object
+      description: |
+        时间线上的一条谈话记录。学生端不返回 `internalRemark` 与 `counselorId`
+        （服务端组装时裁剪，响应体里没有这两个键），作者只显示 `authorLabel` = 「辅导员」。
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 5001
+        talkDate:
+          type: string
+          format: date
+          example: '2026-04-18'
+        topic:
+          type: string
+          example: ACADEMIC
+        topicLabel:
+          type: string
+          example: 学业规划
+        advice:
+          type: string
+        starLevel:
+          type: integer
+          example: 1
+        feedback:
+          type: string
+          nullable: true
+        feedbackAt:
+          type: string
+          format: date-time
+          nullable: true
+        canFeedback:
+          type: boolean
+          description: 仅学生端有意义；feedbackAt 为空时为真
+        authorLabel:
+          type: string
+          example: 辅导员
+        createdAt:
+          type: string
+          format: date-time
+        internalRemark:
+          type: string
+          description: 仅辅导员端返回
+        counselorId:
+          type: integer
+          format: int64
+          description: 仅辅导员端返回
+
+    MentorSectionVO:
+      type: object
+      description: |
+        导师寄语详情。信封字段与 `SectionDetailResponse` 一致，额外带 `notes` 时间线；
+        `fields` 恒为空 Map，`fieldMeta` 仍按角色下发（追加表单与反馈框共用字段定义）。
+      properties:
+        studentId:
+          type: integer
+          format: int64
+        academicYear:
+          type: string
+        sectionCode:
+          type: string
+          example: MENTOR
+        sectionName:
+          type: string
+          example: 导师寄语
+        status:
+          type: string
+          enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED]
+          example: DRAFT
+        fields:
+          type: object
+          additionalProperties: true
+          example: {}
+        fieldMeta:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldMeta'
+        editable:
+          type: boolean
+        completeness:
+          type: number
+          format: double
+          example: 100.00
+        submitCount:
+          type: integer
+        withdrawCount:
+          type: integer
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewReason:
+          type: string
+          description: 仅 RETURNED 时返回
+        reviewedAt:
+          type: string
+          format: date-time
+          description: 仅 RETURNED 时返回
+        notes:
+          type: array
+          description: 按 talkDate 倒序
+          items:
+            $ref: '#/components/schemas/MentorNoteVO'
+        canAppend:
+          type: boolean
+          description: 仅该班辅导员且板块未归档时为真
 
     ReviewTaskVO:
       type: object
