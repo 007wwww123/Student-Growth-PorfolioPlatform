@@ -23,6 +23,12 @@ public class MentorNoteVO {
     /** 记录 ID，学生反馈时作为路径参数。 */
     private Long id;
 
+    /** 更正的原记录 ID；空表示普通记录。 */
+    private Long correctsNoteId;
+
+    /** 更正原因。 */
+    private String correctionReason;
+
     /** 谈话日期，时间线按此倒序。 */
     private LocalDate talkDate;
 

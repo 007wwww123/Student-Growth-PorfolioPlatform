@@ -1809,6 +1809,115 @@ paths:
               schema:
                 $ref: '#/components/schemas/VoidResponse'
 
+  /archive/unfreeze:
+    post:
+      tags: [系统管理]
+      operationId: applyUnfreeze
+      summary: 辅导员申请归档解冻
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentId, reason]
+              properties:
+                studentId: { type: integer, format: int64 }
+                academicYear: { type: string }
+                reason: { type: string, minLength: 10, maxLength: 500 }
+      responses:
+        '200':
+          description: 解冻申请
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    get:
+      tags: [系统管理]
+      operationId: listUnfreezeRequests
+      summary: 解冻申请列表（COU 本人 / ADMIN 全部）
+      responses:
+        '200':
+          description: 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /archive/unfreeze/{id}/approve:
+    post:
+      tags: [系统管理]
+      operationId: approveUnfreeze
+      summary: 管理员通过解冻（六板块回到已通过）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /archive/unfreeze/{id}/reject:
+    post:
+      tags: [系统管理]
+      operationId: rejectUnfreeze
+      summary: 管理员拒绝解冻
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remark]
+              properties:
+                remark: { type: string, minLength: 2, maxLength: 500 }
+      responses:
+        '200':
+          description: 结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /sections/mentor/{studentId}/corrections:
+    post:
+      tags: [档案查看]
+      operationId: appendMentorCorrection
+      summary: 归档后追加 MENTOR 更正记录（不覆盖原文）
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [noteId, reason, advice]
+              properties:
+                noteId: { type: integer, format: int64 }
+                academicYear: { type: string }
+                reason: { type: string, minLength: 5, maxLength: 255 }
+                advice: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: 更正记录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /audit/logs:
     get:
       tags: [系统管理]

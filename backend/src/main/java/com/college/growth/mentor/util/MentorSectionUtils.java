@@ -98,6 +98,8 @@ public final class MentorSectionUtils {
         vo.setCanFeedback(student && note.getFeedbackAt() == null);
         vo.setAuthorLabel(MentorConstants.AUTHOR_LABEL);
         vo.setCreatedAt(note.getCreatedAt());
+        vo.setCorrectsNoteId(note.getCorrectsNoteId());
+        vo.setCorrectionReason(note.getCorrectionReason());
         if (counselor) {
             vo.setInternalRemark(note.getInternalRemark());
             vo.setCounselorId(note.getCounselorId());

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { archiveBatch, fetchArchiveCandidates } from '@/api/archive'
+import { applyUnfreeze } from '@/api/unfreeze'
 import { isApiError, type ApiError } from '@/api/http'
 import type { ArchiveCandidate, ArchiveResult } from '@/api/types'
 import { DEMO_ACADEMIC_YEAR, currentAcademicYear } from '@/sectionMeta'
@@ -26,6 +27,7 @@ const submitting = ref(false)
 const error = ref<ApiError | null>(null)
 const result = ref<ArchiveResult | null>(null)
 const confirming = ref(false)
+const unfreezeMessage = ref('')
 
 const classOptions = computed(() => {
   const seen = new Map<string, string>()
@@ -100,6 +102,20 @@ async function submit(): Promise<void> {
   }
 }
 
+async function onUnfreeze(item: ArchiveCandidate): Promise<void> {
+  const reason = window.prompt('请填写解冻原因（不少于 10 字）') ?? ''
+  if (reason.trim().length < 10) {
+    unfreezeMessage.value = '解冻原因不少于 10 字'
+    return
+  }
+  try {
+    await applyUnfreeze(item.studentId, academicYear.value, reason.trim())
+    unfreezeMessage.value = '解冻申请已提交，等待管理员审批'
+  } catch (e) {
+    error.value = isApiError(e) ? e : null
+  }
+}
+
 function incompleteNames(item: ArchiveCandidate): string {
   return item.incompleteSections.map((section) => section.sectionName).join('、')
 }
@@ -124,6 +140,7 @@ onMounted(load)
       <span class="archive__scope">仅本班</span>
     </header>
 
+    <p v-if="unfreezeMessage" class="archive__summary">{{ unfreezeMessage }}</p>
     <div class="archive__toolbar">
       <label class="archive__select">
         学年
@@ -226,6 +243,9 @@ onMounted(load)
             </td>
             <td>
               <span v-if="item.archived" class="tag tag--LOCKED">已归档</span>
+              <button v-if="item.archived" type="button" class="btn btn--small btn--ghost" @click="onUnfreeze(item)">
+                申请解冻
+              </button>
               <span v-else-if="item.archivable" class="tag tag--APPROVED">可归档</span>
               <span v-else class="tag tag--RETURNED">未完成 {{ item.incompleteSections.length }} 块</span>
             </td>

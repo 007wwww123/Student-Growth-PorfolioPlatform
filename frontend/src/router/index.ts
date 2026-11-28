@@ -129,6 +129,12 @@ const router = createRouter({
       meta: { title: '临时授权', roles: ['ADMIN'] },
     },
     {
+      path: '/admin/unfreeze',
+      name: 'admin-unfreeze',
+      component: () => import('@/views/admin/UnfreezeView.vue'),
+      meta: { title: '解冻审批', roles: ['ADMIN'] },
+    },
+    {
       path: '/admin/dicts',
       name: 'admin-dicts',
       component: () => import('@/views/admin/DictView.vue'),

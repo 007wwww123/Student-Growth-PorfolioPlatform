@@ -192,6 +192,7 @@ npm --prefix frontend run dev
 | 班级汇总 Excel（阶段 B） | **已完成**：COU 导出本班按列汇总；手机号/身份证号属敏感列，需管理员审批（4 小时有效），否则 `EC-40304`；导出任务 24 小时下载、水印脚注与审计 |
 | 数据字典（阶段 B） | **已完成**：`sys_dict`/`sys_dict_item` 维护兴趣爱好等选项；停用项不删除，字段 `options_json` 同步 `disabled`，新填报拒绝、历史值显示「摄影（已停用）」；管理端 `/admin/dicts` |
 | 站内通知与自动保存（阶段 B） | **已完成**：`sys_notification` 覆盖提交待审/审核通过/退回/申诉结果；顶部铃铛未读数、已读/全部已读；六个板块页 35 秒无操作自动保存草稿（AC-012） |
+| 归档解冻与导师更正（阶段 B） | **已完成**：COU 申请、ADMIN 审批解冻，六板块 LOCKED→APPROVED 并留痕/通知；MENTOR 归档后只追加更正记录（`corrects_note_id`/`correction_reason`），不覆盖原文 |
 
 ## 七、协作约定
 
