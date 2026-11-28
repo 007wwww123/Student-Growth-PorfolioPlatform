@@ -15,8 +15,18 @@ import { DEMO_ACADEMIC_YEAR, DEMO_STUDENT_ID, SECTION_MAP, STATUS_LABELS } from 
  * 六个板块的交互完全一致（查详情 → 改草稿 → 提交 → 必要时撤回），差异只在字段清单。
  * 字段清单以服务端下发的 fieldMeta 为准（arc_field_def 是唯一来源，含控件类型、
  * 枚举选项与「当前角色能不能写」），sectionMeta 只在接口未提供 fieldMeta 时兜底。
+ *
+ * 板块特有的展示（如生活心理的关注提示）走 `above` 作用域插槽，不往外壳里塞业务分支；
+ * 派生字段（后端只算不落库、界面上不该让人填的）通过 `hiddenKeys` 移出表单网格。
  */
-const props = defineProps<{ code: SectionCode }>()
+const props = withDefaults(
+  defineProps<{
+    code: SectionCode
+    /** 不渲染到表单网格的字段短名：派生值由板块页自己用插槽展示 */
+    hiddenKeys?: string[]
+  }>(),
+  { hiddenKeys: () => [] },
+)
 
 const meta = computed(() => SECTION_MAP[props.code])
 const section = ref<SectionVO | null>(null)
@@ -71,7 +81,11 @@ const completenessText = computed(
   () => `${Number(section.value?.completeness ?? 0).toFixed(2).replace(/\.00$/, '')}%`,
 )
 
-const fields = computed(() => renderFieldsOf(section.value?.fieldMeta, meta.value.fields))
+const fields = computed(() =>
+  renderFieldsOf(section.value?.fieldMeta, meta.value.fields).filter(
+    (field) => !props.hiddenKeys.includes(field.key),
+  ),
+)
 
 /**
  * 学校维护、需辅导员确认的字段被学生改过之后，新值先进入待确认区。
@@ -289,6 +303,9 @@ watch(() => props.code, load, { immediate: true })
     <p v-if="loading" class="board__loading">加载中…</p>
 
     <template v-else-if="section">
+      <!-- 板块自定义区：只读派生值、板块级提示等由各板块页通过插槽补，外壳不写业务分支 -->
+      <slot name="above" :section="section" :fields="fields" :status-label="statusLabel" />
+
       <!-- 待确认区：学生只能看到「等待确认」，确认动作属于辅导员 -->
       <PendingHint :items="pendingItems" />
 

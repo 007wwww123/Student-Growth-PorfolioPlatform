@@ -688,6 +688,118 @@ check(
   `changed=${resetBasic.body.data?.changed} roles=${JSON.stringify(nameAfterReset?.editableRoles)}`,
 )
 
+// 15. 生活心理：学生保存→提交→撤回、辅导员可见性与派生关注标记
+const lifeDetail = await call(`/sections/life/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const lifeKeys = Object.keys(lifeDetail.body.data?.fields ?? {})
+check(
+  '生活心理：学生详情含 12 个字段，且不含辅导员专属的重大事件备忘',
+  lifeDetail.status === 200 &&
+    lifeDetail.body.data?.sectionCode === 'LIFE' &&
+    (lifeDetail.body.data?.fieldMeta ?? []).length === 11 &&
+    !lifeKeys.includes('majorEvent') &&
+    lifeKeys.includes('stressScore') &&
+    lifeDetail.body.data?.editable === true,
+  `meta=${lifeDetail.body.data?.fieldMeta?.length} keys=${lifeKeys.length}`,
+)
+
+const lifeSave = await call('/sections/life/1001', json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: {
+    orgRole: '班级学习委员',
+    orgLevel: 'MID',
+    sleepHabit: 'LATE',
+    exerciseFreq: 'LOW',
+    personality: '偏内向，熟悉后活跃',
+    econSelf: 'TIGHT',
+    stressScore: 4,
+    stressSource: ['学业', '就业'],
+    mood: 'LOW',
+  },
+}))
+const lifeAfterSave = await call(`/sections/life/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '生活心理：保存草稿后完成度 100%，关注标记按压力与情绪派生为需关注',
+  lifeSave.status === 200 &&
+    lifeAfterSave.body.data?.completeness === 100 &&
+    Number(lifeAfterSave.body.data?.fields?.careFlag) === 1 &&
+    lifeAfterSave.body.data?.fields?.orgLevel === 'MID',
+  `complete=${lifeAfterSave.body.data?.completeness} careFlag=${lifeAfterSave.body.data?.fields?.careFlag}`,
+)
+
+const lifeBadScore = await call('/sections/life/1001', json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: { stressScore: 6 },
+}))
+const lifeTooManySources = await call('/sections/life/1001', json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: { stressSource: ['学业', '就业', '人际', '家庭'] },
+}))
+check(
+  '生活心理：压力自评越界与压力来源超限都被拦下',
+  lifeBadScore.status === 422 &&
+    lifeBadScore.body.code === 'EC-42201' &&
+    lifeTooManySources.status === 422 &&
+    lifeTooManySources.body.code === 'EC-42201',
+  `score=${lifeBadScore.body.code} source=${lifeTooManySources.body.code}`,
+)
+
+const lifeCouOnlyField = await call('/sections/life/1001', json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: { aidSource: ['国家助学金'] },
+}))
+check(
+  '生活心理：学生改辅导员维护的资助来源被拒',
+  lifeCouOnlyField.status === 403 && lifeCouOnlyField.body.code === 'EC-40301',
+  `status=${lifeCouOnlyField.status} code=${lifeCouOnlyField.body.code}`,
+)
+
+const lifeCou = await call(`/sections/life/1001?academicYear=${YEAR}`, { headers: COU_9001 })
+const lifeCouKeys = Object.keys(lifeCou.body.data?.fields ?? {})
+const lifeCouMeta = (lifeCou.body.data?.fieldMeta ?? []).map((field: Record<string, any>) => field.key)
+check(
+  '生活心理：辅导员看不到压力自评原始值，但能看到关注标记与压力来源',
+  !lifeCouKeys.includes('stressScore') &&
+    !lifeCouMeta.includes('stressScore') &&
+    Number(lifeCou.body.data?.fields?.careFlag) === 1 &&
+    lifeCouKeys.includes('stressSource') &&
+    lifeCouMeta.includes('majorEvent'),
+  `keys=${lifeCouKeys.join(',')}`,
+)
+
+const lifeSubmit = await call(`/sections/life/1001/submit?academicYear=${YEAR}`, { method: 'POST', headers: STU_1001 })
+const lifeAfterSubmit = await call(`/sections/life/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const lifeWithdraw = await call(`/sections/life/1001/withdraw?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const lifeAfterWithdraw = await call(`/sections/life/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '生活心理：提交后锁定、撤回一次回到草稿',
+  lifeSubmit.status === 200 &&
+    lifeAfterSubmit.body.data?.status === 'SUBMITTED' &&
+    lifeAfterSubmit.body.data?.editable === false &&
+    lifeWithdraw.status === 200 &&
+    lifeAfterWithdraw.body.data?.status === 'DRAFT' &&
+    lifeAfterWithdraw.body.data?.withdrawCount === 1,
+  `submit=${lifeAfterSubmit.body.data?.status} withdraw=${lifeAfterWithdraw.body.data?.status}`,
+)
+
+const lifeSubmitAgain = await call(`/sections/life/1001/submit?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const lifeWithdrawTwice = await call(`/sections/life/1001/withdraw?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+check(
+  '生活心理：再次提交后第二次撤回返回 EC-40903',
+  lifeSubmitAgain.status === 200 &&
+    lifeWithdrawTwice.status === 409 &&
+    lifeWithdrawTwice.body.code === 'EC-40903',
+  `code=${lifeWithdrawTwice.body.code}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)

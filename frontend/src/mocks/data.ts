@@ -250,10 +250,12 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       required: false,
       source: 'STU',
       editableRoles: ['STU'],
+      // 枚举一律存英文码、展示中文标签（需求 5.4）：库里是 HIGH/MID/LOW，
+      // mock 若用「高/中/低」当值，前端存进去的值后端一个都认不出来
       options: [
-        { value: '高', label: '高' },
-        { value: '中', label: '中' },
-        { value: '低', label: '低' },
+        { value: 'HIGH', label: '高' },
+        { value: 'MID', label: '中' },
+        { value: 'LOW', label: '低' },
       ],
     },
     {
@@ -264,9 +266,9 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       source: 'STU',
       editableRoles: ['STU'],
       options: [
-        { value: '早睡早起', label: '早睡早起' },
-        { value: '规律', label: '规律' },
-        { value: '晚睡', label: '晚睡' },
+        { value: 'EARLY', label: '早睡早起' },
+        { value: 'NORMAL', label: '规律' },
+        { value: 'LATE', label: '晚睡' },
       ],
     },
     {
@@ -277,10 +279,10 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       source: 'STU',
       editableRoles: ['STU'],
       options: [
-        { value: '不运动', label: '不运动' },
-        { value: '每周1-2次', label: '每周 1–2 次' },
-        { value: '每周3-4次', label: '每周 3–4 次' },
-        { value: '每周5次以上', label: '每周 5 次以上' },
+        { value: 'NONE', label: '不运动' },
+        { value: 'LOW', label: '每周 1–2 次' },
+        { value: 'MID', label: '每周 3–4 次' },
+        { value: 'HIGH', label: '每周 5 次以上' },
       ],
     },
     { key: 'personality', name: '个性描述', type: 'TEXTAREA', required: false, source: 'STU', editableRoles: ['STU'] },
@@ -292,13 +294,22 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       source: 'STU',
       editableRoles: ['STU'],
       options: [
-        { value: '良好', label: '良好' },
-        { value: '一般', label: '一般' },
-        { value: '紧张', label: '紧张' },
+        { value: 'GOOD', label: '良好' },
+        { value: 'NORMAL', label: '一般' },
+        { value: 'TIGHT', label: '紧张' },
       ],
     },
     { key: 'aidSource', name: '资助来源', type: 'MULTI_SELECT', required: false, source: 'COU', editableRoles: ['COU'] },
-    { key: 'stressScore', name: '压力自评', type: 'NUMBER', required: true, source: 'STU', editableRoles: ['STU'] },
+    {
+      key: 'stressScore',
+      name: '压力自评',
+      type: 'NUMBER',
+      required: true,
+      source: 'STU',
+      editableRoles: ['STU'],
+      // 原始分值只对学生本人可见（需求 4.5）：辅导员视图里连字段都不下发，只看关注标记
+      visibleRoles: ['STU'],
+    },
     { key: 'stressSource', name: '压力来源', type: 'MULTI_SELECT', required: false, source: 'STU', editableRoles: ['STU'] },
     {
       key: 'mood',
@@ -308,12 +319,22 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       source: 'STU',
       editableRoles: ['STU'],
       options: [
-        { value: '良好', label: '良好' },
-        { value: '一般', label: '一般' },
-        { value: '低落', label: '低落' },
+        { value: 'GOOD', label: '良好' },
+        { value: 'FAIR', label: '一般' },
+        { value: 'LOW', label: '低落' },
       ],
     },
-    { key: 'majorEvent', name: '重大事件备忘', type: 'TEXTAREA', required: false, source: 'COU', editableRoles: ['COU'] },
+    // 辅导员工作记录：学生端不返回（需求 4.5 要求接口层剔除，不靠前端隐藏）
+    {
+      key: 'majorEvent',
+      name: '重大事件备忘',
+      type: 'TEXTAREA',
+      required: false,
+      source: 'COU',
+      editableRoles: ['COU'],
+      visibleRoles: ['COU'],
+    },
+    // 派生字段：由压力自评与情绪算出，固定不可编辑，值不落库
     { key: 'careFlag', name: '关注标记', type: 'CHECKBOX', required: false, source: 'SYS', editableRoles: [] },
   ],
   career: [
@@ -805,33 +826,63 @@ export function resetPermissions(code: SectionCode, role: UserRole): PermissionS
   return { changed, section: sectionPermissionOf(code) }
 }
 
-function fieldMetaOf(section: MockSection, role: UserRole): FieldMeta[] {
-  const code = section.sectionCode.toLowerCase() as SectionCode
-  return defsOf(code).map((def) => {
-    const hasPending = Object.prototype.hasOwnProperty.call(section.pending, def.key)
-    return {
-      key: def.key,
-      fieldCode: `${code}.${def.key}`,
-      fieldName: def.name,
-      fieldType: def.type,
-      required: def.required,
-      source: def.source,
-      options: def.options,
-      sensitive: def.sensitive ?? 0,
-      editable: canEdit(def, role, section.status),
-      masked: def.sensitive != null && def.sensitive >= 2,
-      pendingConfirm: hasPending,
-      pendingValue: hasPending ? maskedValue(def, section.pending[def.key]) : undefined,
-    }
-  })
+/**
+ * 当前角色能否看到该字段。
+ *
+ * <p>与后端 {@code arc_field_def.visible_roles} 同口径：看不到的字段连值与 fieldMeta 都不下发，
+ * 否则「前端隐藏」只是把输入框藏起来，响应体里仍然能读到。管理员例外——持授权时按全量返回，
+ * 由页面只读展示。</p>
+ */
+function canSee(def: MockFieldDef, role: UserRole): boolean {
+  return role === 'ADMIN' || roleVisibleOf(def, role)
 }
 
-/** 对外视图：敏感字段按角色脱敏，待确认值单独带出。 */
+function fieldMetaOf(section: MockSection, role: UserRole): FieldMeta[] {
+  const code = section.sectionCode.toLowerCase() as SectionCode
+  return defsOf(code)
+    .filter((def) => canSee(def, role))
+    .map((def) => {
+      const hasPending = Object.prototype.hasOwnProperty.call(section.pending, def.key)
+      return {
+        key: def.key,
+        fieldCode: `${code}.${def.key}`,
+        fieldName: def.name,
+        fieldType: def.type,
+        required: def.required,
+        source: def.source,
+        options: def.options,
+        sensitive: def.sensitive ?? 0,
+        editable: canEdit(def, role, section.status),
+        masked: def.sensitive != null && def.sensitive >= 2,
+        pendingConfirm: hasPending,
+        pendingValue: hasPending ? maskedValue(def, section.pending[def.key]) : undefined,
+      }
+    })
+}
+
+/**
+ * 派生的关注标记（需求 4.5：由压力自评与情绪算出，不落库、不可手工编辑）。
+ *
+ * <p>取值一律来自正式值而不是脱敏后的视图，理由与后端一致：辅导员看不到压力自评，
+ * 若从视图推导，关注标记会永远是 0——那恰好是辅导员唯一能看的结论。</p>
+ */
+function derivedCareFlag(section: MockSection): number {
+  const score = Number(section.fields.stressScore)
+  return section.fields.mood === 'LOW' && Number.isFinite(score) && score >= 4 ? 1 : 0
+}
+
+/** 对外视图：敏感字段按角色脱敏，不可见字段不下发，派生字段读取时补上。 */
 function viewOf(section: MockSection, role: UserRole): SectionVO {
   const code = section.sectionCode.toLowerCase() as SectionCode
   const fields: Record<string, unknown> = {}
   for (const def of defsOf(code)) {
+    if (!canSee(def, role)) {
+      continue
+    }
     fields[def.key] = maskedValue(def, section.fields[def.key])
+  }
+  if (code === 'life' && 'careFlag' in fields) {
+    fields.careFlag = derivedCareFlag(section)
   }
   return {
     ...section,
@@ -888,6 +939,9 @@ export function saveSection(
     }
   }
 
+  // 先按合并后的快照校验板块规则，再落值：mock 没有事务，先写后校验会留下半份脏数据
+  validateSectionRules(code, { ...section.fields, ...values })
+
   for (const [key, value] of Object.entries(values)) {
     const def = defByKey.get(key)!
     if (def.source === 'STU_CFM' && role === 'STU') {
@@ -900,6 +954,29 @@ export function saveSection(
 
   section.completeness = completeOf(section)
   return viewOf(section, role)
+}
+
+/**
+ * 板块级跨字段规则，与后端 `*SectionUtils.validateFields` 同口径。
+ *
+ * <p>mock 只覆盖能拦住「页面能存、后端 422」的那几条；字段类型、枚举、长度仍由
+ * fieldMeta 的控件约束负责。</p>
+ */
+function validateSectionRules(code: SectionCode, fields: Record<string, unknown>): void {
+  if (code !== 'life') {
+    return
+  }
+  const score = fields.stressScore
+  if (score != null && String(score).trim() !== '') {
+    const numeric = Number(score)
+    if (!Number.isInteger(numeric) || numeric < 1 || numeric > 5) {
+      throw new MockError('EC-42201', '压力自评须为 1–5 的整数', 422)
+    }
+  }
+  const source = fields.stressSource
+  if (Array.isArray(source) && source.length > 3) {
+    throw new MockError('EC-42201', '压力来源最多选择 3 项', 422)
+  }
 }
 
 export function submitSection(
