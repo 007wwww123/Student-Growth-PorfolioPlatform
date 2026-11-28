@@ -75,6 +75,21 @@ const REVIEW_ITEM: NavItem = {
 }
 
 /**
+ * 班级台账（F-07）：辅导员看本班，持临时授权的管理员可看全部。
+ *
+ * <p>台账是业务数据视图，与审核工作台同组：辅导员的工作流是「台账发现待办 → 进审核」，
+ * 两个入口放在一起才顺手。管理员不放在「审核」组，而是放进「系统管理」，
+ * 因为管理员默认无业务数据权限，只有持授权时才出现，避免菜单里出现必然 403 的死链。</p>
+ */
+const LEDGER_ITEM: NavItem = {
+  key: 'ledger',
+  label: '班级台账',
+  icon: 'review',
+  to: '/ledger',
+  matchNames: ['ledger-list'],
+}
+
+/**
  * 批量建档（S-1-01）：仅辅导员可见。
  *
  * <p>建档是业务写操作，管理员为「临时只读授权」，服务端会返回 EC-40302，
@@ -221,16 +236,17 @@ export function isStaff(role: UserRole | undefined): boolean {
  * <p><b>口径（已与需求方确认，勿按"bug"改回）</b>：教师/管理员为 <b>总览 + 六大模块 + 审核工作台</b>
  * ——需求文案写的是「六大模块及总览」共 7 项，但删掉审核入口后辅导员没有任何可点路径进入
  * /review（页面仍在，只是摸不到），因此保留审核项。若将来产品坚持 7 项，应同时给出另一个入口
- * （例如挂到总览页），不要只删这一行。</p>
+ * （例如挂到总览页），不要只删这一行。班级台账（F-07）对辅导员挂在「审核」分组，
+ * 从台账发现待审再跳审核；对持授权管理员挂在「系统管理」分组，与业务写入口保持距离。</p>
  *
  * <p>管理员在此之上多一项「权限配置」（字段级编辑权限），属于系统管理能力；
  * 该页不含任何档案内容，管理员仍不能借它修改学生数据。</p>
  *
  * <p><b>管理员按「临时授权」而非「角色」收敛菜单</b>：管理员默认无业务数据权限
- * （需求 2.1），无授权时看板与待审列表返回 EC-40302、板块详情只回空视图，
+ * （需求 2.1），无授权时看板、待审列表与台账返回 EC-40302、板块详情只回空视图，
  * 这些入口点进去必然被拒。因此只有持授权（{@code tempGrant}）时才出现
- * 总览、六大板块与审核工作台；无授权时只留唯一可用的「字段权限配置」，
- * 避免菜单里 9 项有 8 项是死路。</p>
+ * 总览、六大板块、审核工作台与班级台账；无授权时只留系统管理，
+ * 避免菜单里多项是死路。</p>
  */
 export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavGroup[] {
   if (role === 'ADMIN' && !tempGrant) {
@@ -239,18 +255,23 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
     return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CHANGE_ITEM, CLASS_EXPORT_ITEM, DICT_ITEM, UNFREEZE_ITEM] }]
   }
   if (isStaff(role)) {
+    // 台账对辅导员挂在「审核」组（发现待办 → 进审核），对管理员挂在「系统管理」组：
+    // 管理员默认无业务数据权限，不能与辅导员的审核入口混在一起，否则无授权时仍会看到业务数据入口。
+    const reviewItems: NavItem[] =
+      role === 'COU' ? [REVIEW_ITEM, LEDGER_ITEM, CHANGE_ITEM] : [REVIEW_ITEM, CHANGE_ITEM]
     const groups: NavGroup[] = [
       { key: 'overview', items: [OVERVIEW_ITEM] },
       { key: 'sections', title: '档案模块', items: SECTION_ITEMS },
-      { key: 'review', title: '审核', items: [REVIEW_ITEM, CHANGE_ITEM] },
+      { key: 'review', title: '审核', items: reviewItems },
     ]
     // 档案管理只有辅导员有写权限；管理员保持只读，不出现建档/归档入口
     if (role === 'COU') {
       groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM, IMPORT_ITEM, CLASS_EXPORT_ITEM] })
     }
-    // 字段权限、组织架构、账号管理是管理员专属；辅导员不出现，路由守卫也会拦截
+    // 字段权限、组织架构、账号管理是管理员专属；辅导员不出现，路由守卫也会拦截。
+    // 持授权的管理员这里才出现台账（系统管理组），无授权时整组不含业务数据入口。
     if (role === 'ADMIN') {
-      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CLASS_EXPORT_ITEM, DICT_ITEM, UNFREEZE_ITEM] })
+      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CLASS_EXPORT_ITEM, LEDGER_ITEM, DICT_ITEM, UNFREEZE_ITEM] })
     }
     return groups
   }

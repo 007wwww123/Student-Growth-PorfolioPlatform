@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  班级台账查询（F-07 / AC-020）。
+
+  口径说明：
+    1. 班级取值与 dashboard、StudentClassService 保持一致：
+       COALESCE(stu_student.class_code, basic.classId, '未分班')。
+       三处必须用同一个表达式，否则「台账里的班」和「看板里的班」会对不上。
+    2. 汇总分母取在册学生（stu_student.status = 1），不是「本学年有档案的学生」：
+       未建档学生没有 arc_profile 行，若只数 arc_profile，一个全员未建档的班
+       会显示 0/0 而不是 0/N，台账就失去了「查谁还没开始」的意义。
+    3. 完成数读 arc_profile.completed（由完成标记补偿任务维护），不在这里重算
+       六板块规则；与首页看板、归档共用同一真源。
+    4. 明细行 = 一个学生 × 一个板块档案；未建档学生补一行虚拟行
+       （NULL profile_id / section_code，status = UNARCHIVED），每生一行。
+    5. count 与 list 共用 taskFilter 片段：AC-020 要求筛选结果与计数一致，
+       两条 SQL 只有共享过滤条件才能从结构上保证不会漂。
+-->
+<mapper namespace="com.college.growth.ledger.mapper.LedgerMapper">
+
+    <!-- 班级取值：先学籍主数据，再基本信息板块（存量回退），最后未分班 -->
+    <sql id="classKey">COALESCE(NULLIF(TRIM(s.class_code), ''), ci.value_text, '未分班')</sql>
+
+    <!--
+      明细行集：档案行 UNION ALL 未建档行。
+
+      档案行以 arc_profile 为驱动表，学生姓名/学号优先取 stu_student（学籍权威），
+      缺失时回退基本信息板块的 basic.name / basic.classId。
+      未建档行以 stu_student 为驱动表，与本学年任何板块都没有记录的学生一人一行。
+    -->
+    <sql id="taskRowSource">
+        SELECT p.id AS profileId,
+               p.student_id AS studentId,
+               p.section_code AS sectionCode,
+               p.status AS status,
+               p.completeness AS completeness,
+               p.submit_count AS submitCount,
+               p.submitted_at AS submittedAt,
+               p.reviewed_at AS reviewedAt,
+               p.reviewer_id AS reviewerId,
+               COALESCE(NULLIF(TRIM(s.student_no), ''), '') AS studentNo,
+               COALESCE(NULLIF(TRIM(s.name), ''), ni.value_text, '') AS studentName,
+               <include refid="classKey"/> AS classCode,
+               c.class_name AS className
+        FROM arc_profile p
+        LEFT JOIN stu_student s ON s.id = p.student_id
+        LEFT JOIN arc_profile bp
+               ON bp.student_id = p.student_id
+              AND bp.academic_year = p.academic_year
+              AND bp.section_code = 'BASIC'
+        LEFT JOIN arc_profile_item ci
+               ON ci.profile_id = bp.id
+              AND ci.field_code = 'basic.classId'
+        LEFT JOIN arc_profile_item ni
+               ON ni.profile_id = bp.id
+              AND ni.field_code = 'basic.name'
+        LEFT JOIN org_class c ON c.class_code = <include refid="classKey"/>
+        WHERE p.academic_year = #{academicYear}
+          <!-- 与汇总同一口径：休学/退学/毕业学生不计入台账统计基数（BR-L03），档案本身保留 -->
+          AND s.status = 1
+        <!--
+          关键字必须在这里过滤，不能放到外层 taskFilter 里按派生列 t.studentName 过滤：
+          MySQL 8.0.22+ 的「派生表条件下推」（derived_condition_pushdown，默认开启）
+          会把 outer WHERE 的 LIKE 推到 UNION 分支上，而多字节条件下推后匹配语义出错——
+          实测 2025-2026-1 的李明（studentName=李明）在派生表外层 `LIKE '%李%'` 返回 0，
+          关掉该优化后返回 1。直接在分支里对基础列过滤，既不依赖优化器行为，也能提前缩小结果集。
+          注意：分支 1 的姓名有「学籍优先、基本信息板块兜底」的 COALESCE，过滤条件必须与之一致，
+          否则会出现「列表显示某名字却搜不到」。
+        -->
+        <if test="keyword != null and keyword != ''">
+            AND (COALESCE(NULLIF(TRIM(s.name), ''), ni.value_text, '')
+                     LIKE CONCAT('%', #{keyword}, '%')
+                 OR COALESCE(NULLIF(TRIM(s.student_no), ''), '')
+                     LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        UNION ALL
+        SELECT NULL AS profileId,
+               s.id AS studentId,
+               NULL AS sectionCode,
+               'UNARCHIVED' AS status,
+               NULL AS completeness,
+               0 AS submitCount,
+               NULL AS submittedAt,
+               NULL AS reviewedAt,
+               NULL AS reviewerId,
+               COALESCE(NULLIF(TRIM(s.student_no), ''), '') AS studentNo,
+               COALESCE(NULLIF(TRIM(s.name), ''), '') AS studentName,
+               COALESCE(NULLIF(TRIM(s.class_code), ''), '未分班') AS classCode,
+               uc.class_name AS className
+        FROM stu_student s
+        LEFT JOIN org_class uc
+               ON uc.class_code = COALESCE(NULLIF(TRIM(s.class_code), ''), '未分班')
+        WHERE s.status = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM arc_profile x
+              WHERE x.student_id = s.id
+                AND x.academic_year = #{academicYear}
+          )
+        <if test="keyword != null and keyword != ''">
+            AND (COALESCE(NULLIF(TRIM(s.name), ''), '') LIKE CONCAT('%', #{keyword}, '%')
+                 OR COALESCE(NULLIF(TRIM(s.student_no), ''), '') LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+    </sql>
+
+    <!--
+      明细过滤：count 与 list 共用，保证 AC-020 的「筛出几行 = 计数」。
+
+      关键字不在这里：MySQL 的派生表条件下推在 utf8mb4 LIKE 上会算错（详见 taskRowSource
+      里的说明），因此它被下沉到 UNION 各分支，与本片段一样被 count/list 共享。
+    -->
+    <sql id="taskFilter">
+        WHERE 1 = 1
+        <if test="counselorId != null">
+            AND EXISTS (
+                SELECT 1 FROM org_class sc
+                WHERE sc.class_code = t.classCode
+                  AND sc.status = 1
+                  AND sc.counselor_user_id = #{counselorId}
+            )
+        </if>
+        <if test="classCode != null and classCode != ''">
+            AND t.classCode = #{classCode}
+        </if>
+        <if test="status != null and status != ''">
+            AND t.status = #{status}
+        </if>
+    </sql>
+
+    <!--
+      班级汇总：一个班一行。
+
+      学生按 classKey 分组，arc_profile 左连接后每个学生会有最多 6 行（六个板块），
+      因此学生数一律 COUNT(DISTINCT s.id)，板块数用 SUM(CASE ...) 数档案行——
+      两者口径不同，不能互相替代。
+    -->
+    <select id="selectClassStats" resultType="com.college.growth.ledger.mapper.LedgerClassStatRow">
+        SELECT <include refid="classKey"/> AS classCode,
+               MAX(c.class_name) AS className,
+               COUNT(DISTINCT s.id) AS studentTotal,
+               COUNT(DISTINCT CASE WHEN p.id IS NOT NULL THEN s.id END) AS archivedStudents,
+               COUNT(DISTINCT CASE WHEN p.completed = 1 THEN s.id END) AS completedStudents,
+               COALESCE(SUM(CASE WHEN p.status = 'SUBMITTED' THEN 1 ELSE 0 END), 0) AS pendingProfiles,
+               COALESCE(SUM(CASE WHEN p.status = 'RETURNED' THEN 1 ELSE 0 END), 0) AS returnedProfiles,
+               COALESCE(SUM(CASE WHEN p.status = 'DRAFT' THEN 1 ELSE 0 END), 0) AS draftProfiles
+        FROM stu_student s
+        LEFT JOIN arc_profile bp
+               ON bp.student_id = s.id
+              AND bp.academic_year = #{academicYear}
+              AND bp.section_code = 'BASIC'
+        LEFT JOIN arc_profile_item ci
+               ON ci.profile_id = bp.id
+              AND ci.field_code = 'basic.classId'
+        LEFT JOIN org_class c ON c.class_code = <include refid="classKey"/>
+        LEFT JOIN arc_profile p
+               ON p.student_id = s.id
+              AND p.academic_year = #{academicYear}
+        WHERE s.status = 1
+        <if test="counselorId != null">
+            AND c.counselor_user_id = #{counselorId}
+            AND c.status = 1
+        </if>
+        GROUP BY <include refid="classKey"/>
+    </select>
+
+    <!-- 计数：与 list 共用 rowSource 与 taskFilter -->
+    <select id="countTasks" resultType="long">
+        SELECT COUNT(*)
+        FROM (<include refid="taskRowSource"/>) t
+        <include refid="taskFilter"/>
+    </select>
+
+    <!--
+      明细列表。排序按「待办优先级」：待审 → 退回 → 草稿 → 已通过 → 已归档 → 未建档，
+      同状态内按提交时间倒序（未建档行 submittedAt 为空，DESC 下自然排到后面），
+      最后用学号与板块兜底，保证翻页结果稳定。
+    -->
+    <select id="selectTaskPage" resultType="com.college.growth.ledger.mapper.LedgerTaskRow">
+        SELECT t.profileId,
+               t.studentId,
+               t.studentNo,
+               t.studentName,
+               t.classCode,
+               t.className,
+               t.sectionCode,
+               t.status,
+               t.completeness,
+               t.submitCount,
+               t.submittedAt,
+               t.reviewedAt,
+               t.reviewerId,
+               u.display_name AS reviewerName
+        FROM (<include refid="taskRowSource"/>) t
+        LEFT JOIN sys_user u ON u.id = t.reviewerId
+        <include refid="taskFilter"/>
+        ORDER BY CASE t.status
+                     WHEN 'SUBMITTED' THEN 1
+                     WHEN 'RETURNED' THEN 2
+                     WHEN 'DRAFT' THEN 3
+                     WHEN 'APPROVED' THEN 4
+                     WHEN 'LOCKED' THEN 5
+                     ELSE 6
+                 END,
+                 t.submittedAt DESC,
+                 t.studentNo,
+                 t.sectionCode
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+</mapper>
