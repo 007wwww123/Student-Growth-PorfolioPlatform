@@ -1723,32 +1723,31 @@ components:
 
     LifeSectionSaveDTO:
       type: object
-      description: 生活心理保存请求，对应 `LifeSectionSaveDTO`
+      description: |
+        生活心理保存请求，对应 `LifeSectionSaveDTO`。
+
+        与学业、兴趣同一套「信封 + `fields`」结构：字段短名作 `fields` 的键，
+        类型、必填、枚举、长度、可编辑角色全部来自 `arc_field_def`，因此这里不再逐字段声明——
+        新增或调整字段不需要改契约。平铺写法（把字段直接放在顶层）仍被接受，用于兼容早期联调脚本。
       required: [academicYear]
       properties:
         academicYear:
           type: string
           example: 2025-2026-1
-        orgRole:
-          type: string
-          description: 组织职务
-        orgLevel:
-          type: string
-          description: 组织层级
-        sleepHabit:
-          type: string
-          description: 作息习惯
-        exerciseFreq:
-          type: string
-          description: 运动频率
-        stressScore:
-          type: integer
-          description: 压力指数，1-10
-          minimum: 1
-          maximum: 10
-        mood:
-          type: string
-          description: 近期心情
+        fields:
+          type: object
+          description: 字段短名 → 值；值为 `null` 表示清空该字段
+          additionalProperties: true
+          example:
+            orgRole: 班级学习委员
+            orgLevel: MID
+            sleepHabit: NORMAL
+            exerciseFreq: MID
+            personality: 偏内向，熟悉后活跃
+            econSelf: NORMAL
+            stressScore: 3
+            stressSource: [学业, 就业]
+            mood: FAIR
 
     CareerSectionSaveDTO:
       type: object

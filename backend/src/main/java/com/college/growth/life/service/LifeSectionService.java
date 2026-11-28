@@ -15,7 +15,7 @@ public interface LifeSectionService {
      *
      * @param studentId    学生 ID
      * @param academicYear 学年，如 2025-2026-1；为空时取当前学年
-     * @return 板块详情（含字段权限位）
+     * @return 板块详情（含字段权限位、完成度与审核痕迹）
      */
     LifeSectionVO detail(Long studentId, String academicYear);
 
@@ -34,4 +34,12 @@ public interface LifeSectionService {
      * @param academicYear 学年
      */
     void submit(Long studentId, String academicYear);
+
+    /**
+     * 撤回提交（S-1-09）：仅学生本人，SUBMITTED 转 DRAFT，全生命周期一次（BR-S06）。
+     *
+     * @param studentId    学生 ID
+     * @param academicYear 学年
+     */
+    void withdraw(Long studentId, String academicYear);
 }
