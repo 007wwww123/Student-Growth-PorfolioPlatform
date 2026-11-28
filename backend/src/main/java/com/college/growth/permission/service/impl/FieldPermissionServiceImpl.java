@@ -279,7 +279,7 @@ public class FieldPermissionServiceImpl implements FieldPermissionService {
         vo.setFieldName(def.getFieldName());
         vo.setFieldType(def.getFieldType());
         vo.setSource(def.getSource());
-        vo.setRequired(def.isRequired());
+        vo.setRequired(def.isRequiredFlag());
         vo.setSensitive(def.getSensitiveLevel() == null ? 0 : def.getSensitiveLevel());
         vo.setEditableRoles(roles);
         vo.setDefaultEditableRoles(defaults);

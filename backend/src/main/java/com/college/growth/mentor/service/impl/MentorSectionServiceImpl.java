@@ -313,7 +313,7 @@ public class MentorSectionServiceImpl implements MentorSectionService {
                         "字段不存在或已停用：" + entry.getKey());
             }
             Object value = entry.getValue();
-            if (def.isRequired() && FieldValues.isEmpty(value)) {
+            if (def.isRequiredFlag() && FieldValues.isEmpty(value)) {
                 throw new BusinessException(ResultCode.REQUIRED_FIELD_MISSING,
                         "必填内容未填写：" + def.getFieldName(),
                         List.of(new FieldErrorDetail(def.getFieldCode(), "REQUIRED",

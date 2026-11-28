@@ -169,7 +169,7 @@ public class SectionFormService {
         }
         for (var def : defs) {
             var value = FieldValueCodec.read(def, items.get(def.getFieldCode()));
-            if (def.isRequired() && FieldValues.isEmpty(value)) {
+            if (def.isRequiredFlag() && FieldValues.isEmpty(value)) {
                 throw new BusinessException(ResultCode.REQUIRED_FIELD_MISSING, "必填内容未填写",
                         List.of(new FieldErrorDetail(def.getFieldCode(), "REQUIRED", "必填内容未填写")));
             }

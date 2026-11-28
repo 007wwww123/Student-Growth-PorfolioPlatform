@@ -1322,6 +1322,148 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/fields:
+    get:
+      tags: [系统管理]
+      operationId: listFieldDefs
+      summary: 字段定义列表（`config:field:manage`）
+      parameters:
+        - { name: sectionCode, in: query, required: false, schema: { type: string, enum: [BASIC, ACADEMIC, INTEREST, LIFE, CAREER, MENTOR] } }
+      responses:
+        '200':
+          description: 字段定义列表（含停用）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    post:
+      tags: [系统管理]
+      operationId: createFieldDef
+      summary: 新增字段定义
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sectionCode, fieldCode, fieldName, fieldType, source, visibleRoles]
+              properties:
+                sectionCode: { type: string }
+                fieldCode: { type: string, description: 必须以板块小写前缀开头，如 basic.dormNo }
+                fieldName: { type: string }
+                fieldType: { type: string }
+                required: { type: integer, enum: [0, 1] }
+                source: { type: string, enum: [SIS, COU, STU, STU_CFM, SYS, IMP] }
+                visibleRoles: { type: array, items: { type: string, enum: [STU, COU] } }
+                editableRoles: { type: array, items: { type: string, enum: [STU, COU] } }
+                validator: { type: string }
+                ruleJson: { type: string }
+                optionsJson: { type: string }
+                sensitiveLevel: { type: integer, enum: [0, 1, 2] }
+                sortNo: { type: integer }
+                remark: { type: string }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/fields/meta:
+    get:
+      tags: [系统管理]
+      operationId: fieldDefMeta
+      summary: 字段类型/来源/校验器/角色元数据
+      responses:
+        '200':
+          description: 元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/fields/{id}:
+    put:
+      tags: [系统管理]
+      operationId: updateFieldDef
+      summary: 修改字段定义（编码与板块不可改，已有数据不可改类型）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fieldName, fieldType, source, visibleRoles]
+              properties:
+                fieldName: { type: string }
+                fieldType: { type: string }
+                required: { type: integer, enum: [0, 1] }
+                source: { type: string }
+                visibleRoles: { type: array, items: { type: string } }
+                editableRoles: { type: array, items: { type: string } }
+                validator: { type: string }
+                ruleJson: { type: string }
+                optionsJson: { type: string }
+                sensitiveLevel: { type: integer }
+                sortNo: { type: integer }
+                remark: { type: string }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/fields/{id}/status:
+    put:
+      tags: [系统管理]
+      operationId: updateFieldDefStatus
+      summary: 启用/停用字段（系统字段不可停用）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /admin/fields/{id}/required:
+    put:
+      tags: [系统管理]
+      operationId: updateFieldDefRequired
+      summary: 必填开关（AC-007，保存即生效）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                required: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
   /permissions/me:
     get:
       tags: [系统管理]

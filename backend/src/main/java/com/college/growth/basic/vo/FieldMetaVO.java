@@ -20,7 +20,7 @@ public class FieldMetaVO {
         meta.setFieldCode(def.getFieldCode());
         meta.setFieldName(def.getFieldName());
         meta.setFieldType(def.getFieldType());
-        meta.setRequired(def.isRequired());
+        meta.setRequired(def.isRequiredFlag());
         meta.setSource(def.getSource());
         List<FieldOption> options = FieldOption.parse(def.getOptionsJson());
         meta.setOptions(options.isEmpty() ? null : options);

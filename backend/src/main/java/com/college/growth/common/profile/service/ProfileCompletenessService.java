@@ -110,7 +110,7 @@ public class ProfileCompletenessService {
             if (item != null && item.hasPending()) {
                 throw new BusinessException(ResultCode.STATE_CONFLICT, "请先确认或驳回：" + def.getFieldName());
             }
-            if (def.isRequired() && !DerivedFieldValidator.CODE.equalsIgnoreCase(def.getValidator())
+            if (def.isRequiredFlag() && !DerivedFieldValidator.CODE.equalsIgnoreCase(def.getValidator())
                     && FieldValues.isEmpty(FieldValueCodec.read(def, item))) {
                 throw new BusinessException(ResultCode.REQUIRED_FIELD_MISSING, "请退回补填：" + def.getFieldName());
             }
@@ -120,7 +120,7 @@ public class ProfileCompletenessService {
     /** 按已加载的字段值计算完成度，供已经查过 items 的调用方复用，避免重复查询。 */
     public BigDecimal compute(String sectionCode, Map<String, ArcProfileItem> items) {
         List<ArcFieldDef> requiredDefs = fieldDefService.listActive(sectionCode).stream()
-                .filter(ArcFieldDef::isRequired)
+                .filter(ArcFieldDef::isRequiredFlag)
                 // 推导字段（如专业由班级推导）不落 arc_profile_item，不计入必填口径。
                 .filter(def -> !DerivedFieldValidator.CODE.equalsIgnoreCase(def.getValidator()))
                 .toList();

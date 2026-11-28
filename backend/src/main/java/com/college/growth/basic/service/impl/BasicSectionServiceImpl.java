@@ -301,7 +301,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
             }
             Object value = effectiveValue(def, items.get(def.getFieldCode()));
             if (FieldValues.isEmpty(value)) {
-                if (def.isRequired()) {
+                if (def.isRequiredFlag()) {
                     missing.add(new FieldErrorDetail(def.getFieldCode(), "REQUIRED", "必填内容未填写"));
                 }
                 continue;
@@ -469,7 +469,7 @@ public class BasicSectionServiceImpl implements BasicSectionService {
     // ------------------------------------------------------------------
     private List<FieldErrorDetail> requiredDetails(List<ArcFieldDef> defs) {
         return defs.stream()
-                .filter(ArcFieldDef::isRequired)
+                .filter(ArcFieldDef::isRequiredFlag)
                 .filter(def -> !isDerived(def))
                 .map(def -> new FieldErrorDetail(def.getFieldCode(), "REQUIRED", "必填内容未填写"))
                 .toList();
