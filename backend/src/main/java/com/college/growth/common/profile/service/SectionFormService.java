@@ -1,6 +1,7 @@
 package com.college.growth.common.profile.service;
 
 import com.college.growth.academic.util.AcademicSectionUtils;
+import com.college.growth.career.util.CareerSectionUtils;
 import com.college.growth.interest.util.InterestSectionUtils;
 import com.college.growth.life.util.LifeSectionUtils;
 import com.college.growth.common.context.CurrentUser;
@@ -231,6 +232,7 @@ public class SectionFormService {
             case ACADEMIC -> AcademicSectionUtils.validateFields(values);
             case INTEREST -> InterestSectionUtils.validateFields(values);
             case LIFE -> LifeSectionUtils.validateFields(values);
+            case CAREER -> CareerSectionUtils.validateFields(values);
             default -> throw new IllegalArgumentException("不支持的表单：" + section);
         }
     }
