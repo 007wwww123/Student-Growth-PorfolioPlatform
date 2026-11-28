@@ -104,6 +104,13 @@ const router = createRouter({
       meta: { title: '字段定义', roles: ['ADMIN'] },
     },
     {
+      path: '/admin/import',
+      name: 'admin-import',
+      component: () => import('@/views/admin/StudentImportView.vue'),
+      // 学生导入：辅导员本班、管理员全部班级
+      meta: { title: '学生导入', roles: ['COU', 'ADMIN'] },
+    },
+    {
       path: '/admin/org',
       name: 'admin-org',
       component: () => import('@/views/admin/OrgView.vue'),

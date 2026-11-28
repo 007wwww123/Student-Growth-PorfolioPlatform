@@ -72,6 +72,9 @@ public class AuditLogService {
     /** 动作：批量开通账号。 */
     public static final String ACTION_BATCH_OPEN = "BATCH_OPEN";
 
+    /** 动作：导入执行。 */
+    public static final String ACTION_IMPORT = "IMPORT";
+
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
 
@@ -89,6 +92,9 @@ public class AuditLogService {
 
     /** 目标类型：账号。 */
     public static final String TARGET_USER = "USER";
+
+    /** 目标类型：学生主数据。 */
+    public static final String TARGET_STUDENT = "STUDENT";
 
     private final SysAuditLogMapper auditLogMapper;
 
