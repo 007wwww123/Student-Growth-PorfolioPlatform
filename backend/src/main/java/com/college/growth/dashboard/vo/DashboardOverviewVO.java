@@ -36,6 +36,26 @@ public class DashboardOverviewVO {
     /** 被退回板块数：学生端待修改量。 */
     private int returnedProfiles;
 
+    /**
+     * 退回率 = 当前 RETURNED 板块数 / 已提交板块数（SUBMITTED+APPROVED+RETURNED+LOCKED）。
+     *
+     * <p>分子是「此刻被退回」的存量，分母是「曾经提交过」的存量，两者都来自同一批班级行，
+     * 所以整体退回率按班级分子分母分别求和后再算，不是各班退回率的平均。</p>
+     */
+    private BigDecimal returnedRate;
+
+    /** 已审板块数（reviewed_at 与 submitted_at 均非空）：平均审核时长的样本量。 */
+    private int reviewedProfiles;
+
+    /**
+     * 平均审核时长（小时，一位小数）= 已审板块的审核秒数之和 / 已审份数 / 3600。
+     *
+     * <p>按秒数加权：班级行只回传秒数之和，这里再统一除以总份数，
+     * 避免「各班平均再平均」把不同规模的班级等权。
+     * 样本为 0 时返回 0，前端必须显示「—」，否则会被读成「零小时审完」。</p>
+     */
+    private BigDecimal averageReviewHours;
+
     /** 草稿板块数：尚未提交的量。 */
     private int draftProfiles;
 

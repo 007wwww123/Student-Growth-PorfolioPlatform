@@ -67,6 +67,9 @@ const STATUS_LABELS: Record<ProfileStatus, string> = {
 /** 已完成口径：已通过与已归档都算完成（归档不能把标记算回未完成）。 */
 const COMPLETED_STATUSES: ProfileStatus[] = ['APPROVED', 'LOCKED']
 
+/** 已提交口径：退回率的分母，与后端 SQL 的 IN (...) 保持一致。 */
+const SUBMITTED_PROFILE_STATUSES: ProfileStatus[] = ['SUBMITTED', 'APPROVED', 'RETURNED', 'LOCKED']
+
 /** 字段定义（mock 版），与 arc_field_def 的关键列一致。 */
 interface MockFieldDef {
   key: string
@@ -1618,7 +1621,8 @@ export function refreshCompletion(
 /**
  * 首页进度聚合（需求未编号，按「首页进度聚合」实现）。
  *
- * <p>口径与后端一致：只统计本学年「已建档」学生，完成标记按「六板块全部 APPROVED / LOCKED」现算。
+ * <p>口径与后端一致：只统计本学年「已建档」学生，完成标记按「六板块全部 APPROVED / LOCKED」现算；
+ * 退回率 = 当前退回 / 已提交，平均审核时长按已审板块的秒数之和 / 份数加权。
  * 权限先判范围再算数——学生与无授权管理员直接 403，不返回空壳数据。</p>
  */
 export function dashboardOverview(
@@ -1658,6 +1662,12 @@ export function dashboardOverview(
     pendingReview: number
     returnedProfiles: number
     draftProfiles: number
+    /** 已提交板块数（含通过、归档、退回），退回率分母 */
+    submittedProfilesTotal: number
+    /** 已审板块数，平均审核时长的样本量 */
+    reviewedProfiles: number
+    /** 已审板块的审核秒数之和，整体平均按它加权 */
+    reviewSeconds: number
   }
   const buckets = new Map<string, ClassBucket>()
   const sectionsByStudent = new Map<number, MockSection[]>()
@@ -1690,11 +1700,20 @@ export function dashboardOverview(
       pendingReview: 0,
       returnedProfiles: 0,
       draftProfiles: 0,
+      submittedProfilesTotal: 0,
+      reviewedProfiles: 0,
+      reviewSeconds: 0,
     }
     bucket.students.add(section.studentId)
     if (section.status === 'SUBMITTED') bucket.pendingReview += 1
     if (section.status === 'RETURNED') bucket.returnedProfiles += 1
     if (section.status === 'DRAFT') bucket.draftProfiles += 1
+    if (SUBMITTED_PROFILE_STATUSES.includes(section.status)) bucket.submittedProfilesTotal += 1
+    // 与后端同口径：审核时间与提交时间都存在才计入平均审核时长
+    if (section.submittedAt && section.reviewedAt) {
+      bucket.reviewedProfiles += 1
+      bucket.reviewSeconds += (Date.parse(section.reviewedAt) - Date.parse(section.submittedAt)) / 1000
+    }
     buckets.set(classId, bucket)
 
     const list = sectionsByStudent.get(section.studentId) ?? []
@@ -1724,6 +1743,9 @@ export function dashboardOverview(
       completedStudents: bucket.completed.size,
       pendingReview: bucket.pendingReview,
       completionRate: percent(bucket.completed.size, bucket.students.size),
+      returnedRate: percent(bucket.returnedProfiles, bucket.submittedProfilesTotal),
+      reviewedProfiles: bucket.reviewedProfiles,
+      averageReviewHours: hoursOf(bucket.reviewSeconds, bucket.reviewedProfiles),
     }))
     .sort((a, b) => String(a.className ?? a.classCode).localeCompare(String(b.className ?? b.classCode)))
 
@@ -1732,12 +1754,19 @@ export function dashboardOverview(
   let pendingReview = 0
   let returnedProfiles = 0
   let draftProfiles = 0
+  let submittedProfilesTotal = 0
+  let reviewedProfiles = 0
+  let reviewSeconds = 0
   for (const bucket of buckets.values()) {
     studentTotal += bucket.students.size
     completedStudents += bucket.completed.size
     pendingReview += bucket.pendingReview
     returnedProfiles += bucket.returnedProfiles
     draftProfiles += bucket.draftProfiles
+    submittedProfilesTotal += bucket.submittedProfilesTotal
+    // 整体平均按秒数加权：先加秒数再加份数，最后只除一次
+    reviewedProfiles += bucket.reviewedProfiles
+    reviewSeconds += bucket.reviewSeconds
   }
 
   return {
@@ -1748,6 +1777,9 @@ export function dashboardOverview(
     completionRate: percent(completedStudents, studentTotal),
     pendingReview,
     returnedProfiles,
+    returnedRate: percent(returnedProfiles, submittedProfilesTotal),
+    reviewedProfiles,
+    averageReviewHours: hoursOf(reviewSeconds, reviewedProfiles),
     draftProfiles,
     sections,
     classes,
@@ -1760,6 +1792,14 @@ function percent(part: number, total: number): number {
     return 0
   }
   return Math.round((part * 1000) / total) / 10
+}
+
+/** 平均审核时长（小时，一位小数）= 秒数之和 / 份数 / 3600，与后端 averageHours() 一致；样本为 0 时为 0。 */
+function hoursOf(reviewSeconds: number, reviewedProfiles: number): number {
+  if (reviewedProfiles <= 0 || reviewSeconds <= 0) {
+    return 0
+  }
+  return Math.round((reviewSeconds / (reviewedProfiles * 3600)) * 10) / 10
 }
 
 /** 重置内存数据，供测试或热更新使用。 */

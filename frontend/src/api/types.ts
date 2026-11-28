@@ -387,7 +387,7 @@ export interface SectionProgress {
   completionRate: number
 }
 
-/** 班级完成率，对应后端 ClassProgressVO。 */
+/** 班级进度，对应后端 ClassProgressVO。 */
 export interface ClassProgress {
   classCode: string
   className?: string
@@ -396,6 +396,12 @@ export interface ClassProgress {
   pendingReview: number
   /** 完成率百分比，一位小数 */
   completionRate: number
+  /** 退回率百分比，一位小数；无已提交板块时为 0 */
+  returnedRate: number
+  /** 已审板块数，即平均审核时长的样本量；为 0 时页面显示「—」 */
+  reviewedProfiles: number
+  /** 平均审核时长（小时，一位小数），按本班已审板块的秒数之和 / 份数算 */
+  averageReviewHours: number
 }
 
 /**
@@ -415,6 +421,12 @@ export interface DashboardOverview {
   /** 待审核板块数 */
   pendingReview: number
   returnedProfiles: number
+  /** 退回率百分比，一位小数 = 当前退回 / 已提交（含通过、归档） */
+  returnedRate: number
+  /** 已审板块数，即平均审核时长的样本量；为 0 时页面显示「—」 */
+  reviewedProfiles: number
+  /** 平均审核时长（小时，一位小数），已按秒数加权，不是各班均值的平均 */
+  averageReviewHours: number
   draftProfiles: number
   /** 六板块状态分布，固定六项 */
   sections: SectionProgress[]

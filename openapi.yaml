@@ -1330,11 +1330,13 @@ paths:
       operationId: getDashboardOverview
       summary: 首页进度聚合
       description: |
-        一个请求返回首页所需的全部数字：建档学生数、六板块完成数、待审核量、
-        六板块状态分布与班级完成率。前端不要再用分项自己推导总数，否则两端口径会漂。
+        一个请求返回首页所需的全部数字：建档学生数、六板块完成数、待审核量、退回率、
+        平均审核时长（含样本量）、六板块状态分布与班级进度。前端不要再用分项自己推导总数，否则两端口径会漂。
 
         口径为「本学年已建档」：未建档学生没有 `arc_profile` 记录，不计入分母。
         「完成」读 `arc_profile.completed`（由 S-1-10 维护），不在查询时重算六板块规则。
+        退回率 = 当前 RETURNED 板块数 / 已提交板块数（SUBMITTED+APPROVED+RETURNED+LOCKED），
+        平均审核时长只统计 reviewed_at 与 submitted_at 均非空的板块，按秒数加权（不再对班级均值平均）。
 
         数据范围由服务端按角色收口：辅导员只统计自己的带班（并按 `org_class.counselor_user_id` 过滤），
         管理员需持临时授权；学生与无授权管理员返回 `EC-40302`。
@@ -4715,8 +4717,8 @@ components:
 
     ClassProgressVO:
       type: object
-      description: 班级完成率
-      required: [classCode, studentTotal, completedStudents, pendingReview, completionRate]
+      description: 班级进度（完成率、待审量、退回率、平均审核时长）
+      required: [classCode, studentTotal, completedStudents, pendingReview, completionRate, returnedRate, reviewedProfiles, averageReviewHours]
       properties:
         classCode:
           type: string
@@ -4738,12 +4740,25 @@ components:
           example: 1
         completionRate:
           type: number
+          description: 完成率百分比，一位小数
           example: 50.0
+        returnedRate:
+          type: number
+          description: 退回率百分比，一位小数 = 当前 RETURNED 板块数 / 已提交板块数（SUBMITTED+APPROVED+RETURNED+LOCKED）；分母为 0 时 0.0
+          example: 25.0
+        reviewedProfiles:
+          type: integer
+          description: 已审板块数（reviewed_at 与 submitted_at 均非空），即平均审核时长的样本量
+          example: 2
+        averageReviewHours:
+          type: number
+          description: 平均审核时长（小时，一位小数）= 已审板块审核秒数之和 / 已审份数；样本为 0 时 0，前端显示「—」
+          example: 3.5
 
     DashboardOverviewVO:
       type: object
       description: 首页进度聚合，对应后端 DashboardOverviewVO
-      required: [academicYear, studentTotal, completedStudents, completionRate, pendingReview, returnedProfiles, draftProfiles, sections, classes]
+      required: [academicYear, studentTotal, completedStudents, completionRate, pendingReview, returnedProfiles, returnedRate, reviewedProfiles, averageReviewHours, draftProfiles, sections, classes]
       properties:
         academicYear:
           type: string
@@ -4772,6 +4787,18 @@ components:
           type: integer
           description: 被退回板块数
           example: 0
+        returnedRate:
+          type: number
+          description: 退回率百分比，一位小数 = 当前 RETURNED 板块数 / 已提交板块数（SUBMITTED+APPROVED+RETURNED+LOCKED）；分子分母按班级求和后再除，分母为 0 时 0.0
+          example: 12.5
+        reviewedProfiles:
+          type: integer
+          description: 已审板块数（reviewed_at 与 submitted_at 均非空），即平均审核时长的样本量
+          example: 2
+        averageReviewHours:
+          type: number
+          description: 平均审核时长（小时，一位小数）= 已审板块审核秒数之和 / 已审份数（按秒数加权，不对班级均值再平均）；样本为 0 时 0，前端显示「—」
+          example: 3.5
         draftProfiles:
           type: integer
           description: 草稿板块数

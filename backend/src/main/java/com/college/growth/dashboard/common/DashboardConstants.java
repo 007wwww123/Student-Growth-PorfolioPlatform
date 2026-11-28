@@ -18,6 +18,12 @@ public final class DashboardConstants {
     /** 百分比小数位：保留一位，前端直接展示，不再二次取整。 */
     public static final int RATE_SCALE = 1;
 
+    /** 平均审核时长的秒 → 小时换算基数。 */
+    public static final int SECONDS_PER_HOUR = 3600;
+
+    /** 平均审核时长小数位：与百分比一致保留一位。 */
+    public static final int HOURS_SCALE = 1;
+
     /** 数据范围文案。 */
     public static final String SCOPE_SCHOOL = "全校";
 

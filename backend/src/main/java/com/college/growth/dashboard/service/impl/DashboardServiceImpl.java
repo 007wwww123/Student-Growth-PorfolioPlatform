@@ -33,6 +33,9 @@ import org.springframework.stereotype.Service;
  * 统计口径只依赖这两份行数据，加一个指标不需要再加 SQL，也不会出现
  * 「总数来自一条 SQL、分布来自另一条」的口径漂移。</p>
  *
+ * <p>退回率与平均审核时长都在这里做「先求和、再相除」：分子分母分别来自同一批班级行，
+ * 班级行只回传份数与秒数之和，整体值按秒数加权，避免对各班均值再平均。</p>
+ *
  * <p>本类不写库、不重算完成标记，是纯读能力，因此不加事务。</p>
  */
 @Service
@@ -73,6 +76,9 @@ public class DashboardServiceImpl implements DashboardService {
         int pendingReview = 0;
         int returnedProfiles = 0;
         int draftProfiles = 0;
+        int submittedProfilesTotal = 0;
+        int reviewedProfiles = 0;
+        long reviewSeconds = 0L;
         for (DashboardClassRow row : classRows) {
             // 一个学生只属于一个班，按班求和不会重复计数。
             studentTotal += nvl(row.getStudentTotal());
@@ -80,12 +86,20 @@ public class DashboardServiceImpl implements DashboardService {
             pendingReview += nvl(row.getSubmittedProfiles());
             returnedProfiles += nvl(row.getReturnedProfiles());
             draftProfiles += nvl(row.getDraftProfiles());
+            submittedProfilesTotal += nvl(row.getSubmittedProfilesTotal());
+            // 平均审核时长按「秒数之和 / 份数之和」加权，不能对班级均值再求平均。
+            reviewedProfiles += nvl(row.getReviewedProfiles());
+            reviewSeconds += nvl(row.getReviewSeconds());
         }
         vo.setStudentTotal(studentTotal);
         vo.setCompletedStudents(completedStudents);
         vo.setCompletionRate(rate(completedStudents, studentTotal));
         vo.setPendingReview(pendingReview);
         vo.setReturnedProfiles(returnedProfiles);
+        // 退回率的分子分母分别求和后再除：先算各班退回率再平均会把小班放大。
+        vo.setReturnedRate(rate(returnedProfiles, submittedProfilesTotal));
+        vo.setReviewedProfiles(reviewedProfiles);
+        vo.setAverageReviewHours(averageHours(reviewSeconds, reviewedProfiles));
         vo.setDraftProfiles(draftProfiles);
         return vo;
     }
@@ -186,6 +200,9 @@ public class DashboardServiceImpl implements DashboardService {
             vo.setCompletedStudents(nvl(row.getCompletedStudents()));
             vo.setPendingReview(nvl(row.getSubmittedProfiles()));
             vo.setCompletionRate(rate(vo.getCompletedStudents(), vo.getStudentTotal()));
+            vo.setReturnedRate(rate(nvl(row.getReturnedProfiles()), nvl(row.getSubmittedProfilesTotal())));
+            vo.setReviewedProfiles(nvl(row.getReviewedProfiles()));
+            vo.setAverageReviewHours(averageHours(nvl(row.getReviewSeconds()), vo.getReviewedProfiles()));
             classes.add(vo);
         }
         return classes;
@@ -201,7 +218,28 @@ public class DashboardServiceImpl implements DashboardService {
                 .divide(BigDecimal.valueOf(total), DashboardConstants.RATE_SCALE, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 平均审核时长（小时，一位小数）。
+     *
+     * <p>入参是「秒数之和」与「份数之和」，除法只做一次：先算各班均值再平均会让
+     * 一个只有 1 份样本的班和一个 40 份样本的班权重相同，得出谁都不是的数。
+     * 样本为 0（或秒数合计非正）时返回 0.0，由前端按样本量显示「—」。</p>
+     */
+    private BigDecimal averageHours(long reviewSeconds, int reviewedProfiles) {
+        if (reviewedProfiles <= 0 || reviewSeconds <= 0) {
+            return BigDecimal.ZERO.setScale(DashboardConstants.HOURS_SCALE);
+        }
+        // 一次除到位：总秒数 / (份数 × 每小时秒数)，先除份数再除 3600 也能算，但两步各自取整会多一次误差
+        BigDecimal divisor = BigDecimal.valueOf((long) reviewedProfiles * DashboardConstants.SECONDS_PER_HOUR);
+        return BigDecimal.valueOf(reviewSeconds)
+                .divide(divisor, DashboardConstants.HOURS_SCALE, RoundingMode.HALF_UP);
+    }
+
     private int nvl(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private long nvl(Long value) {
+        return value == null ? 0L : value;
     }
 }

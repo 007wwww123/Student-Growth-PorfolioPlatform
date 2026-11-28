@@ -116,7 +116,7 @@ class DashboardServiceTest {
     }
 
     @Test
-    @DisplayName("空学年：全部为 0，完成率 0.0，班级列表为空")
+    @DisplayName("空学年：全部为 0，完成率 0.0，退回率与平均审核时长也为 0.0")
     void overviewHandlesEmptyYear() {
         UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
         when(dashboardMapper.selectClassRows(YEAR, COUNSELOR_ID, null)).thenReturn(List.of());
@@ -126,8 +126,75 @@ class DashboardServiceTest {
 
         assertEquals(0, vo.getStudentTotal());
         assertEquals(new BigDecimal("0.0"), vo.getCompletionRate());
+        assertEquals(0, vo.getReturnedProfiles());
+        assertEquals(new BigDecimal("0.0"), vo.getReturnedRate());
+        assertEquals(0, vo.getReviewedProfiles());
+        assertEquals(new BigDecimal("0.0"), vo.getAverageReviewHours());
         assertTrue(vo.getClasses().isEmpty());
         assertEquals(6, vo.getSections().size());
+    }
+
+    @Test
+    @DisplayName("退回率：分子分母各自求和后再除，不是各班退回率的平均")
+    void returnedRateUsesSubmittedDenominator() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
+        // 软件2401：3 退回 / 10 已提交 = 30.0%；电子2401：1 退回 / 2 已提交 = 50.0%
+        when(dashboardMapper.selectClassRows(YEAR, COUNSELOR_ID, null))
+                .thenReturn(List.of(
+                        classRow("RJ2401", "软件2401", 40, 0, 0, 3, 0, 10, 0, 0L),
+                        classRow("DZ2401", "电子2401", 2, 0, 0, 1, 0, 2, 0, 0L)));
+        when(dashboardMapper.selectSectionRows(YEAR, COUNSELOR_ID, null)).thenReturn(List.of());
+
+        DashboardOverviewVO vo = dashboard.overview(YEAR, null);
+
+        // 合计 4 / 12 = 33.3%；若对 30.0 与 50.0 再平均会得到 40.0，口径必须不同
+        assertEquals(4, vo.getReturnedProfiles());
+        assertEquals(new BigDecimal("33.3"), vo.getReturnedRate());
+
+        assertEquals(new BigDecimal("30.0"), vo.getClasses().get(0).getReturnedRate());
+        assertEquals(new BigDecimal("50.0"), vo.getClasses().get(1).getReturnedRate());
+    }
+
+    @Test
+    @DisplayName("平均审核时长：按秒数加权，班级均值不再平均")
+    void averageReviewHoursWeightedBySeconds() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
+        // 软件2401：1 份、合计 7200 秒（每份 2.0 小时）；电子2401：3 份、合计 3600 秒（每份约 0.3 小时）
+        when(dashboardMapper.selectClassRows(YEAR, COUNSELOR_ID, null))
+                .thenReturn(List.of(
+                        classRow("RJ2401", "软件2401", 3, 0, 0, 0, 0, 1, 1, 7200L),
+                        classRow("DZ2401", "电子2401", 3, 0, 0, 0, 0, 2, 3, 3600L)));
+        when(dashboardMapper.selectSectionRows(YEAR, COUNSELOR_ID, null)).thenReturn(List.of());
+
+        DashboardOverviewVO vo = dashboard.overview(YEAR, null);
+
+        // 合计 10800 秒 / 4 份 = 2700 秒 = 0.75 小时，四舍五入 0.8；
+        // 对班级均值（2.0 与 0.3）再平均会得到 1.2，那是错的
+        assertEquals(4, vo.getReviewedProfiles());
+        assertEquals(new BigDecimal("0.8"), vo.getAverageReviewHours());
+
+        assertEquals(1, vo.getClasses().get(0).getReviewedProfiles());
+        assertEquals(new BigDecimal("2.0"), vo.getClasses().get(0).getAverageReviewHours());
+        assertEquals(3, vo.getClasses().get(1).getReviewedProfiles());
+        assertEquals(new BigDecimal("0.3"), vo.getClasses().get(1).getAverageReviewHours());
+    }
+
+    @Test
+    @DisplayName("分母为 0：无已提交板块时退回率 0.0，无已审样本时平均时长 0.0")
+    void zeroDenominatorYieldsZero() {
+        UserContext.set(new CurrentUser(COUNSELOR_ID, UserRoleEnum.COU, false));
+        // 只有草稿：没有「已提交」也没有「已审核」，两项指标都没有分母
+        when(dashboardMapper.selectClassRows(YEAR, COUNSELOR_ID, null))
+                .thenReturn(List.of(classRow("RJ2401", "软件2401", 3, 0, 0, 0, 3, 0, 0, 0L)));
+        when(dashboardMapper.selectSectionRows(YEAR, COUNSELOR_ID, null)).thenReturn(List.of());
+
+        DashboardOverviewVO vo = dashboard.overview(YEAR, null);
+
+        assertEquals(new BigDecimal("0.0"), vo.getReturnedRate());
+        assertEquals(0, vo.getReviewedProfiles());
+        assertEquals(new BigDecimal("0.0"), vo.getAverageReviewHours());
+        assertEquals(new BigDecimal("0.0"), vo.getClasses().get(0).getReturnedRate());
+        assertEquals(new BigDecimal("0.0"), vo.getClasses().get(0).getAverageReviewHours());
     }
 
     @Test
@@ -228,9 +295,20 @@ class DashboardServiceTest {
         assertEquals(2, vo.getDraftProfiles());
     }
 
-    /** 一个班级聚合行。 */
+    /**
+     * 一个班级聚合行（简化版）：已提交板块数按「待审 + 退回」估、
+     * 已审样本与秒数留空，只用于不关心两项新指标的用例。
+     */
     private DashboardClassRow classRow(String classCode, String className, int students, int completed,
                                        int submitted, int returned, int draft) {
+        return classRow(classCode, className, students, completed, submitted, returned, draft,
+                submitted + returned, 0, 0L);
+    }
+
+    /** 一个班级聚合行（完整版）：显式给出已提交总数、已审份数与审核秒数之和。 */
+    private DashboardClassRow classRow(String classCode, String className, int students, int completed,
+                                       int submitted, int returned, int draft,
+                                       int submittedTotal, int reviewed, long reviewSeconds) {
         DashboardClassRow row = new DashboardClassRow();
         row.setClassCode(classCode);
         row.setClassName(className);
@@ -239,6 +317,9 @@ class DashboardServiceTest {
         row.setSubmittedProfiles(submitted);
         row.setReturnedProfiles(returned);
         row.setDraftProfiles(draft);
+        row.setSubmittedProfilesTotal(submittedTotal);
+        row.setReviewedProfiles(reviewed);
+        row.setReviewSeconds(reviewSeconds);
         return row;
     }
 

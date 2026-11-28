@@ -10,12 +10,12 @@ import { DEMO_ACADEMIC_YEAR, SECTIONS } from '@/sectionMeta'
 /**
  * 总览页。
  *
- * <p>辅导员与持临时授权的管理员看到的是本学年进度聚合：学生数、完成数、
- * 切审量、六板块状态分布与班级完成率；学生仍然只看六个板块入口——
+ * <p>辅导员与持临时授权的管理员看到的是本学年进度聚合：学生数、完成数、待审量、
+ * 退回率、平均审核时长、六板块状态分布与班级进度；学生仍然只看六个板块入口——
  * 学生本人进度在各板块页面与审核详情的完成标记里，重复一套聚合只会带来两份口径。</p>
  *
- * <p>聚合数字全部由服务端算好，页面只做百分比换算用于条形宽度，
- * 不在这里重新累加或推导完成率。</p>
+ * <p>聚合数字全部由服务端算好，页面只做百分比换算用于条形宽度、给小时数补单位，
+ * 不在这里重新累加或推导完成率、退回率与平均审核时长。</p>
  */
 const user = getUser()
 
@@ -25,7 +25,7 @@ const canSeeOverview = computed(
 
 const introDesc = computed(() => {
   if (canSeeOverview.value) {
-    return `${DEMO_ACADEMIC_YEAR} 学年进度：建档规模、六板块完成情况与班级完成率，数据按你的带班范围统计。`
+    return `${DEMO_ACADEMIC_YEAR} 学年进度：建档规模、六板块完成情况、退回率与平均审核时长，数据按你的带班范围统计。`
   }
   if (user?.role === 'ADMIN') {
     return '管理员默认无业务数据权限，申请临时授权后可在这里查看看板；当前可浏览六大模块入口。'
@@ -65,22 +65,54 @@ function rateText(value: number | undefined): string {
   return `${Number(value ?? 0).toFixed(1)}%`
 }
 
+/**
+ * 平均审核时长：服务端已换算成小时并保留一位小数，这里只补单位。
+ *
+ * <p>样本量为 0 时没有「平均」可言，显示「—」；若直接显示 0.0，
+ * 会被读成「零小时审完」，比没有数字更误导。</p>
+ */
+function hoursText(value: number | undefined, samples: number | undefined): string {
+  if (!samples) {
+    return '—'
+  }
+  return `${Number(value ?? 0).toFixed(1)} 小时`
+}
+
 /** 板块完成段 = 已通过 + 已归档；两段同色，因为对「是否完成」它们是同一含义。 */
 function doneOf(section: SectionProgress): number {
   return section.approved + section.locked
 }
 
-const kpis = computed(() => {
+interface Kpi {
+  key: string
+  label: string
+  value: string
+  unit: string
+  /** 补充说明，例如样本量；无备注时不显示 */
+  note?: string
+}
+
+const kpis = computed<Kpi[]>(() => {
   const data = overview.value
   if (!data) {
     return []
   }
+  // 平均审核时长没有样本时不显示 0.0，避免被读成「零小时审完」
+  const hasReviewSample = data.reviewedProfiles > 0
   return [
     { key: 'students', label: '建档学生', value: String(data.studentTotal), unit: '人' },
     { key: 'completed', label: '六板块完成', value: String(data.completedStudents), unit: '人' },
     { key: 'rate', label: '完成率', value: rateText(data.completionRate), unit: '' },
     { key: 'pending', label: '待审核板块', value: String(data.pendingReview), unit: '个' },
     { key: 'returned', label: '待修改板块', value: String(data.returnedProfiles), unit: '个' },
+    { key: 'returnedRate', label: '退回率', value: rateText(data.returnedRate), unit: '' },
+    {
+      key: 'reviewHours',
+      label: '平均审核时长',
+      value: hasReviewSample ? Number(data.averageReviewHours ?? 0).toFixed(1) : '—',
+      unit: hasReviewSample ? '小时' : '',
+      note: hasReviewSample ? `样本 ${data.reviewedProfiles} 份` : '',
+    },
     { key: 'draft', label: '草稿板块', value: String(data.draftProfiles), unit: '个' },
   ]
 })
@@ -114,6 +146,7 @@ onMounted(load)
             <span class="kpi__value">
               {{ item.value }}<small v-if="item.unit" class="kpi__unit">{{ item.unit }}</small>
             </span>
+            <small v-if="item.note" class="kpi__note">{{ item.note }}</small>
           </li>
         </ul>
 
@@ -166,26 +199,35 @@ onMounted(load)
 
         <div class="panel">
           <div class="panel__head">
-            <h2 class="panel__title">班级完成率</h2>
-            <span class="panel__scope">有档案的学生计入分母</span>
+            <h2 class="panel__title">班级进度</h2>
+            <span class="panel__scope">完成率分母为有档案学生；退回率与平均时长按板块口径</span>
           </div>
           <p v-if="!classes.length" class="hint">本学年范围内还没有建档数据。</p>
-          <ul v-else class="bars">
-            <li v-for="row in classes" :key="row.classCode" class="bars__row">
-              <span class="bars__name">{{ row.className || row.classCode }}</span>
-              <span class="bars__track">
-                <span
-                  v-if="row.completedStudents"
-                  class="bars__seg bars__seg--done"
-                  :style="{ width: widthOf(row.completedStudents, row.studentTotal) }"
-                  :title="`完成 ${row.completedStudents}`"
-                />
-              </span>
-              <span class="bars__value">{{ rateText(row.completionRate) }}</span>
-              <span class="bars__count">
-                {{ row.completedStudents }} / {{ row.studentTotal }} 人
-                <em v-if="row.pendingReview" class="bars__pending">待审 {{ row.pendingReview }}</em>
-              </span>
+          <ul v-else class="classes">
+            <li v-for="row in classes" :key="row.classCode" class="classes__row">
+              <div class="classes__main">
+                <span class="classes__name">{{ row.className || row.classCode }}</span>
+                <span class="classes__track">
+                  <span
+                    v-if="row.completedStudents"
+                    class="classes__seg classes__seg--done"
+                    :style="{ width: widthOf(row.completedStudents, row.studentTotal) }"
+                    :title="`完成 ${row.completedStudents}`"
+                  />
+                </span>
+                <span class="classes__rate">{{ rateText(row.completionRate) }}</span>
+              </div>
+              <div class="classes__meta">
+                <span>{{ row.completedStudents }} / {{ row.studentTotal }} 人完成</span>
+                <span>待审 {{ row.pendingReview }}</span>
+                <span>退回率 {{ rateText(row.returnedRate) }}</span>
+                <span>
+                  平均审核 {{ hoursText(row.averageReviewHours, row.reviewedProfiles) }}
+                  <em v-if="row.reviewedProfiles" class="classes__samples">
+                    （{{ row.reviewedProfiles }} 份）
+                  </em>
+                </span>
+              </div>
             </li>
           </ul>
         </div>
@@ -265,6 +307,11 @@ onMounted(load)
   color: var(--color-text-muted);
   font-size: 12px;
   font-weight: 400;
+}
+
+.kpi__note {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
 }
 
 .panel {
@@ -361,9 +408,67 @@ onMounted(load)
   font-variant-numeric: tabular-nums;
 }
 
-.bars__pending {
-  margin-left: 6px;
-  color: #b45309;
+.classes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.classes__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.classes__main {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.classes__name {
+  color: var(--color-text);
+}
+
+.classes__track {
+  display: flex;
+  align-items: center;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-bg);
+}
+
+.classes__seg {
+  height: 100%;
+}
+
+.classes__seg--done {
+  background: #10b981;
+}
+
+.classes__rate {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 与上方条形左对齐（班级名 84px + 间距 10px），读数不受条形影响 */
+.classes__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-left: 94px;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.classes__samples {
   font-style: normal;
 }
 
