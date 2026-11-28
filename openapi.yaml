@@ -1322,6 +1322,48 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /audit/logs:
+    get:
+      tags: [系统管理]
+      operationId: queryAuditLogs
+      summary: 审计日志查询（管理员全部，师生仅本人）
+      parameters:
+        - { name: bizType, in: query, required: false, schema: { type: string } }
+        - { name: action, in: query, required: false, schema: { type: string } }
+        - { name: studentId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: operatorId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 审计分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /audit/login-logs:
+    get:
+      tags: [系统管理]
+      operationId: queryLoginLogs
+      summary: 登录日志查询（仅管理员）
+      parameters:
+        - { name: username, in: query, required: false, schema: { type: string } }
+        - { name: success, in: query, required: false, schema: { type: integer, enum: [0, 1] } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 登录日志分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /export/profiles/{studentId}:
     post:
       tags: [系统管理]
