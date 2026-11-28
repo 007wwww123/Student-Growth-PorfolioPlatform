@@ -1431,6 +1431,116 @@ paths:
               schema:
                 $ref: '#/components/schemas/ObjectResponse'
 
+  /changes:
+    get:
+      tags: [档案查看]
+      operationId: queryChangeLogs
+      summary: 变更记录查询（学生本人 / COU 本班 / ADMIN）
+      parameters:
+        - { name: studentId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: sectionCode, in: query, required: false, schema: { type: string } }
+        - { name: bizType, in: query, required: false, schema: { type: string } }
+        - { name: fieldCode, in: query, required: false, schema: { type: string } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 变更分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /changes/{changeId}/appeals:
+    post:
+      tags: [档案查看]
+      operationId: createChangeAppeal
+      summary: 学生对本人变更发起申诉
+      parameters:
+        - { name: changeId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5, maxLength: 500 }
+      responses:
+        '200':
+          description: 申诉单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /changes/appeals:
+    get:
+      tags: [档案查看]
+      operationId: queryChangeAppeals
+      summary: 申诉列表（学生本人 / COU 本班 / ADMIN）
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [PENDING, APPROVED, REJECTED] } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 申诉分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /changes/appeals/{id}/approve:
+    post:
+      tags: [档案查看]
+      operationId: approveChangeAppeal
+      summary: COU 通过本班学生申诉
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 处理结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /changes/appeals/{id}/reject:
+    post:
+      tags: [档案查看]
+      operationId: rejectChangeAppeal
+      summary: COU 拒绝本班学生申诉（意见必填）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remark]
+              properties:
+                remark: { type: string, minLength: 2, maxLength: 500 }
+      responses:
+        '200':
+          description: 处理结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /audit/logs:
     get:
       tags: [系统管理]

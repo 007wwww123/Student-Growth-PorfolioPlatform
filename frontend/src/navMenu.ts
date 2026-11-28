@@ -135,6 +135,15 @@ const TEMP_GRANT_ITEM: NavItem = {
   matchNames: ['admin-temp-grants'],
 }
 
+/** 变更记录与申诉：学生本人、辅导员本班、管理员全部（F-18）。 */
+const CHANGE_ITEM: NavItem = {
+  key: 'changes',
+  label: '变更记录',
+  icon: 'review',
+  to: '/changes',
+  matchNames: ['changes'],
+}
+
 /** 审计日志：管理员专属，审计与登录日志查询。 */
 const AUDIT_ITEM: NavItem = {
   key: 'audit',
@@ -200,13 +209,13 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
   if (role === 'ADMIN' && !tempGrant) {
     // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现；
     // 系统管理（字段权限、组织架构、账号管理）不接触档案内容，保留。
-    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM] }]
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, IMPORT_ITEM, ORG_ITEM, ACCOUNT_ITEM, TEMP_GRANT_ITEM, AUDIT_ITEM, CHANGE_ITEM] }]
   }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
       { key: 'overview', items: [OVERVIEW_ITEM] },
       { key: 'sections', title: '档案模块', items: SECTION_ITEMS },
-      { key: 'review', title: '审核', items: [REVIEW_ITEM] },
+      { key: 'review', title: '审核', items: [REVIEW_ITEM, CHANGE_ITEM] },
     ]
     // 档案管理只有辅导员有写权限；管理员保持只读，不出现建档/归档入口
     if (role === 'COU') {
@@ -218,5 +227,5 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
     }
     return groups
   }
-  return [{ key: 'sections', title: '档案板块', items: SECTION_ITEMS }]
+  return [{ key: 'sections', title: '档案板块', items: [...SECTION_ITEMS, CHANGE_ITEM] }]
 }
