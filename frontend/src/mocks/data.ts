@@ -12,6 +12,8 @@ import type {
   EnrollStudentResult,
   FieldMeta,
   FieldPermission,
+  MentorNoteVO,
+  MentorSectionVO,
   PermissionMatrix,
   PermissionSaveResult,
   ProfileStatus,
@@ -347,10 +349,12 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       source: 'COU',
       editableRoles: ['COU'],
       options: [
-        { value: '学业规划', label: '学业规划' },
-        { value: '就业指导', label: '就业指导' },
-        { value: '心理疏导', label: '心理疏导' },
-        { value: '日常交流', label: '日常交流' },
+        // 与 12_seed_section_field_defs.sql 一致：枚举一律存英文码、展示中文标签。
+        // 原 mock 用中文当值，真实后端的 ENUM 校验器一个都认不出来。
+        { value: 'ACADEMIC', label: '学业规划' },
+        { value: 'CAREER', label: '就业指导' },
+        { value: 'PSYCH', label: '心理疏导' },
+        { value: 'DAILY', label: '日常交流' },
       ],
     },
     { key: 'advice', name: '建议与寄语', type: 'TEXTAREA', required: true, source: 'COU', editableRoles: ['COU'] },
@@ -902,6 +906,227 @@ export function saveSection(
   return viewOf(section, role)
 }
 
+// ---------------------------------------------------------------------------
+// 板块六 导师寄语：谈话记录子表（需求 4.7）
+// ---------------------------------------------------------------------------
+
+/**
+ * 与后端 arc_mentor_note 同构。mock 也用独立数组而不是塞进 section.fields：
+ * 需求明确「没有主表字段值，全部内容在子表，一行一次谈话」，
+ * 用固定字段表达不了 N 次谈话，也会让完成度按主表必填字段恒算 0%。
+ */
+interface MentorNoteRow {
+  id: number
+  studentId: number
+  academicYear: string
+  talkDate: string
+  topic: string
+  advice: string
+  starLevel: number
+  feedback: string | null
+  feedbackAt: string | null
+  internalRemark: string | null
+  counselorId: number
+  createdAt: string
+}
+
+let mentorNoteSeq = 5000
+
+/** 预置两条谈话，对应验收用例 AC-040「学生已有 2 条谈话，辅导员追加第 3 条」。 */
+const MENTOR_NOTES: MentorNoteRow[] = [
+  {
+    id: 5001, studentId: 1001, academicYear: '2025-2026-1', talkDate: '2026-04-18',
+    topic: 'ACADEMIC', advice: '本学期重点补齐算法基础，建议参加校赛练手并每周复盘一次',
+    starLevel: 1, feedback: null, feedbackAt: null, internalRemark: null,
+    counselorId: 9001, createdAt: '2026-04-18T10:00:00',
+  },
+  {
+    id: 5002, studentId: 1001, academicYear: '2025-2026-1', talkDate: '2026-05-20',
+    topic: 'CAREER', advice: '建议暑期投递实习，简历突出项目经历与量化成果，尽早准备秋招',
+    starLevel: 2, feedback: null, feedbackAt: null,
+    internalRemark: '已推荐至合作企业实习', counselorId: 9001, createdAt: '2026-05-20T14:30:00',
+  },
+]
+
+const MENTOR_TOPIC_CODES = new Set(['ACADEMIC', 'CAREER', 'PSYCH', 'DAILY'])
+const MENTOR_ADVICE_MIN = 20
+const MENTOR_ADVICE_MAX = 1000
+const MENTOR_TEXT_MAX = 500
+/** 学生主数据只有入学年，下界按 1 月 1 日取，与后端 MentorSectionUtils 同口径。 */
+const MENTOR_ENROLL_FROM = '2024-01-01'
+
+function nowText(): string {
+  return new Date().toISOString().slice(0, 19)
+}
+
+function mentorRowsOf(studentId: number, academicYear: string): MentorNoteRow[] {
+  return MENTOR_NOTES.filter((row) => row.studentId === studentId && row.academicYear === academicYear)
+    .slice()
+    .sort((a, b) => b.talkDate.localeCompare(a.talkDate) || b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+}
+
+function mentorNoteComplete(row: MentorNoteRow): boolean {
+  return Boolean(row.talkDate && row.topic && row.advice.trim())
+}
+
+/** 完成度按「至少一条完整谈话」算，与主表字段无关（后端 MentorCompletenessProvider 同口径）。 */
+function mentorCompletenessOf(studentId: number, academicYear: string): number {
+  return mentorRowsOf(studentId, academicYear).some(mentorNoteComplete) ? 100 : 0
+}
+
+function mentorTopicLabel(topic: string): string {
+  const def = SIMPLE_FIELDS.mentor.find((item) => item.key === 'topic')
+  return def?.options?.find((option) => option.value === topic)?.label ?? topic
+}
+
+/**
+ * 按角色裁剪视图：学生端连 internalRemark / counselorId 两个键都不下发。
+ * 与后端 MentorSectionUtils.toView 同口径，避免「前端隐藏」被当成权限控制。
+ */
+function mentorNoteView(row: MentorNoteRow, role: UserRole): MentorNoteVO {
+  const view: MentorNoteVO = {
+    id: row.id,
+    talkDate: row.talkDate,
+    topic: row.topic,
+    topicLabel: mentorTopicLabel(row.topic),
+    advice: row.advice,
+    starLevel: row.starLevel,
+    feedback: row.feedback,
+    feedbackAt: row.feedbackAt,
+    canFeedback: role === 'STU' && row.feedbackAt === null,
+    authorLabel: '辅导员',
+    createdAt: row.createdAt,
+  }
+  if (role === 'COU' || role === 'ADMIN') {
+    view.internalRemark = row.internalRemark
+    view.counselorId = row.counselorId
+  }
+  return view
+}
+
+/** 导师寄语详情：统一信封 + 子表时间线；fields 恒为空。 */
+export function getMentorSection(
+  studentId: number,
+  academicYear: string,
+  role: UserRole = 'STU',
+  userId = 0,
+): MentorSectionVO {
+  ensureSeed()
+  const section = getRaw('mentor', studentId, academicYear)
+  const view = viewOf(section, role) as MentorSectionVO
+  const defs = defsOf('mentor')
+  view.fields = {}
+  view.fieldMeta = (view.fieldMeta ?? []).filter((meta) => {
+    const def = defs.find((item) => item.key === meta.key)
+    return (def?.visibleRoles ?? ['STU', 'COU']).includes(role)
+  })
+  view.completeness = mentorCompletenessOf(studentId, academicYear)
+  view.notes = mentorRowsOf(studentId, academicYear).map((row) => mentorNoteView(row, role))
+  view.canAppend = role === 'COU'
+    && section.status !== 'LOCKED'
+    && CLASS_COUNSELOR[classOfStudent(studentId, academicYear)] === userId
+  if (section.status !== 'RETURNED') {
+    delete view.reviewReason
+    delete view.reviewedAt
+  }
+  return view
+}
+
+/** 追加一条谈话记录（仅本班辅导员；只追加，不提供修改/删除）。 */
+export function appendMentorNote(
+  studentId: number,
+  payload: Record<string, unknown>,
+  role: UserRole,
+  userId: number,
+): MentorNoteVO {
+  if (role !== 'COU') {
+    throw new MockError('EC-40303', '仅该班辅导员可追加谈话记录', 403)
+  }
+  ensureSeed()
+  const academicYear = String(payload.academicYear ?? '2025-2026-1')
+  if (CLASS_COUNSELOR[classOfStudent(studentId, academicYear)] !== userId) {
+    throw new MockError('EC-40302', '无权访问该学生的档案', 403)
+  }
+  const section = getRaw('mentor', studentId, academicYear)
+  if (section.status === 'LOCKED') {
+    throw new MockError('EC-40902', '板块已归档，仅可追加更正记录', 409)
+  }
+
+  const talkDate = String(payload.talkDate ?? '')
+  const topic = String(payload.topic ?? '')
+  const advice = String(payload.advice ?? '')
+  const starLevel = Number(payload.starLevel ?? 0)
+  const internalRemark = String(payload.internalRemark ?? '')
+
+  // 与后端同一套错误码：长度/枚举/日期 → EC-42201，必填缺失 → EC-42202。
+  if (!talkDate || !topic || !advice) {
+    throw new MockError('EC-42202', '必填内容未填写：谈话日期 / 主题 / 建议与寄语', 422)
+  }
+  if (talkDate > new Date().toISOString().slice(0, 10) || talkDate < MENTOR_ENROLL_FROM) {
+    throw new MockError('EC-42201', '谈话日期不晚于今天且不早于入学日期', 422)
+  }
+  if (!MENTOR_TOPIC_CODES.has(topic)) {
+    throw new MockError('EC-42201', '取值不在可选范围内：谈话主题', 422)
+  }
+  if (advice.trim().length < MENTOR_ADVICE_MIN || advice.trim().length > MENTOR_ADVICE_MAX) {
+    throw new MockError('EC-42201', '建议与寄语为 20–1000 字', 422)
+  }
+  if (!Number.isInteger(starLevel) || starLevel < 0 || starLevel > 2) {
+    throw new MockError('EC-42201', '重要标记取值 0–2', 422)
+  }
+  if (internalRemark.length > MENTOR_TEXT_MAX) {
+    throw new MockError('EC-42201', '内部备注不能超过 500 字', 422)
+  }
+
+  const row: MentorNoteRow = {
+    id: ++mentorNoteSeq,
+    studentId,
+    academicYear,
+    talkDate,
+    topic,
+    advice: advice.trim(),
+    starLevel,
+    feedback: null,
+    feedbackAt: null,
+    internalRemark: internalRemark.trim() || null,
+    counselorId: userId,
+    createdAt: nowText(),
+  }
+  MENTOR_NOTES.push(row)
+  section.completeness = mentorCompletenessOf(studentId, academicYear)
+  return mentorNoteView(row, role)
+}
+
+/** 学生反馈：仅本人、每条一次，feedbackAt 非空即锁定。 */
+export function submitMentorFeedback(
+  studentId: number,
+  noteId: number,
+  payload: Record<string, unknown>,
+  role: UserRole,
+): MentorNoteVO {
+  if (role !== 'STU') {
+    throw new MockError('EC-40302', '仅学生本人可提交反馈', 403)
+  }
+  ensureSeed()
+  const row = MENTOR_NOTES.find((item) => item.id === noteId && item.studentId === studentId)
+  if (!row) {
+    throw new MockError('EC-40302', '无权对该谈话记录提交反馈', 403)
+  }
+  if (row.feedbackAt !== null) {
+    throw new MockError('EC-40902', '该条谈话已反馈，不可重复提交', 409)
+  }
+  const feedback = String(payload.feedback ?? '').trim()
+  if (!feedback) {
+    throw new MockError('EC-40002', '反馈内容不能为空', 400)
+  }
+  if (feedback.length > MENTOR_TEXT_MAX) {
+    throw new MockError('EC-42201', '学生反馈不能超过 500 字', 422)
+  }
+  row.feedback = feedback
+  row.feedbackAt = nowText()
+  return mentorNoteView(row, role)
+}
+
 export function submitSection(
   code: SectionCode,
   studentId: number,
@@ -916,7 +1141,12 @@ export function submitSection(
   if (section.status !== 'DRAFT' && section.status !== 'RETURNED') {
     throw new MockError('EC-40902', '当前状态不允许提交', 409)
   }
-  const missing = defsOf(code)
+  // MENTOR 的必填内容在子表（需求 4.7），不能用主表 fields 判空，
+  // 否则「辅导员追加了谈话、学生却永远提交不了」。
+  if (code === 'mentor' && mentorCompletenessOf(studentId, academicYear) === 0) {
+    throw new MockError('EC-42202', '请至少追加一条完整谈话记录后再提交', 422)
+  }
+  const missing = (code === 'mentor' ? [] : defsOf(code))
     .filter((def) => def.required && def.source !== 'SYS')
     .filter((def) => {
       const value = section.fields[def.key] ?? section.pending[def.key]
@@ -928,7 +1158,9 @@ export function submitSection(
   section.status = 'SUBMITTED'
   section.submitCount = (section.submitCount ?? 0) + 1
   section.submittedAt = new Date().toISOString().slice(0, 19)
-  section.completeness = completeOf(section)
+  section.completeness = code === 'mentor'
+    ? mentorCompletenessOf(studentId, academicYear)
+    : completeOf(section)
   return viewOf(section, role)
 }
 
@@ -1125,7 +1357,11 @@ export function approveSection(
   if (section.status !== 'SUBMITTED') {
     throw new MockError('EC-40902', '该档案当前不是待审核状态', 409)
   }
-  for (const def of defsOf(code)) {
+  // MENTOR 没有主表字段值，审核就绪改按子表判定（后端 MentorCompletenessProvider 同口径）。
+  if (code === 'mentor' && mentorCompletenessOf(studentId, academicYear) === 0) {
+    throw new MockError('EC-42202', '请退回补填：导师寄语（至少一条完整谈话记录）', 422)
+  }
+  for (const def of code === 'mentor' ? [] : defsOf(code)) {
     if (Object.prototype.hasOwnProperty.call(section.pending, def.key))
       throw new MockError('EC-40902', '请先确认或驳回：' + def.name, 409)
     if (def.required && def.source !== 'SYS' && !String(section.fields[def.key] ?? '').trim())

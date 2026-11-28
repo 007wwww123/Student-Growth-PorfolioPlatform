@@ -93,13 +93,14 @@ export const SECTIONS: SectionMeta[] = [
   {
     code: 'mentor',
     name: '导师寄语',
-    summary: '导师谈话记录与建议，学生只读',
+    summary: '辅导员谈话记录时间线（子表），学生可对每条记录反馈一次；内部备注仅辅导员可见',
     fields: [
       { key: 'talkDate', label: '谈话日期', type: 'date' },
       { key: 'topic', label: '谈话主题', type: 'text' },
-      { key: 'advice', label: '导师建议', type: 'textarea' },
-      { key: 'starLevel', label: '星级评分', type: 'number' },
-      { key: 'feedback', label: '学生反馈', type: 'textarea' },
+      { key: 'advice', label: '建议与寄语（20–1000 字）', type: 'textarea', maxLength: 1000 },
+      { key: 'starLevel', label: '重要标记（0/1/2）', type: 'number' },
+      { key: 'feedback', label: '学生反馈与承诺', type: 'textarea', maxLength: 500 },
+      { key: 'internalRemark', label: '内部备注（仅辅导员）', type: 'textarea', maxLength: 500 },
     ],
   },
 ]

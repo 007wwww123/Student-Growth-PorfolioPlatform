@@ -688,6 +688,119 @@ check(
   `changed=${resetBasic.body.data?.changed} roles=${JSON.stringify(nameAfterReset?.editableRoles)}`,
 )
 
+// ---- 板块六 导师寄语：子表时间线（需求 4.7 / AC-040） ----
+const mentorStu = await call(`/sections/mentor/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const ms = mentorStu.body.data ?? {}
+check(
+  '导师寄语：学生详情为统一信封 + 2 条倒序时间线，fields 恒为空',
+  mentorStu.status === 200 &&
+    ms.notes?.length === 2 &&
+    ms.notes[0].talkDate === '2026-05-20' &&
+    ms.notes[1].talkDate === '2026-04-18' &&
+    Object.keys(ms.fields ?? {}).length === 0 &&
+    ms.completeness === 100 &&
+    ms.canAppend === false,
+  `notes=${ms.notes?.length} comp=${ms.completeness} fields=${Object.keys(ms.fields ?? {}).length}`,
+)
+check(
+  '导师寄语：学生端不下发内部备注/辅导员 ID，只显示「辅导员」',
+  (ms.notes ?? []).every(
+    (n: Record<string, any>) =>
+      !('internalRemark' in n) && !('counselorId' in n) &&
+      n.authorLabel === '辅导员' && n.canFeedback === true,
+  ) &&
+    !(ms.fieldMeta ?? []).some((m: Record<string, any>) => m.key === 'internalRemark'),
+  `meta=${(ms.fieldMeta ?? []).map((m: Record<string, any>) => m.key).join(',')}`,
+)
+
+const mentorCou = await call(`/sections/mentor/1001?academicYear=${YEAR}`, { headers: COU_9001 })
+const mc = mentorCou.body.data ?? {}
+const topicValues = (mc.fieldMeta ?? [])
+  .find((m: Record<string, any>) => m.key === 'topic')
+  ?.options?.map((o: Record<string, any>) => o.value)
+  .join(',')
+check(
+  '导师寄语：辅导员可见内部备注且可追加，主题枚举为英文码',
+  mc.canAppend === true &&
+    mc.notes?.[0]?.internalRemark === '已推荐至合作企业实习' &&
+    (mc.fieldMeta ?? []).length === 6 &&
+    topicValues === 'ACADEMIC,CAREER,PSYCH,DAILY',
+  `canAppend=${mc.canAppend} meta=${(mc.fieldMeta ?? []).length} topics=${topicValues}`,
+)
+
+const NOTE3 = {
+  academicYear: YEAR,
+  talkDate: '2026-06-01',
+  topic: 'DAILY',
+  advice: '近期作息较规律，继续保持运动习惯，有问题随时找辅导员沟通',
+  starLevel: 0,
+  internalRemark: '家庭经济困难，需留意勤工助学名额',
+}
+const append3 = await call('/sections/mentor/1001/notes', json('POST', COU_9001, NOTE3))
+const afterAppend = await call(`/sections/mentor/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '导师寄语：辅导员追加第 3 条，学生端见 3 条且仍不见内部备注（AC-040）',
+  append3.status === 200 &&
+    append3.body.code === '0' &&
+    append3.body.data?.internalRemark === '家庭经济困难，需留意勤工助学名额' &&
+    afterAppend.body.data?.notes?.length === 3 &&
+    afterAppend.body.data.notes.every((n: Record<string, any>) => !('internalRemark' in n)),
+  `code=${append3.body.code} notes=${afterAppend.body.data?.notes?.length}`,
+)
+
+const badShort = await call('/sections/mentor/1001/notes', json('POST', COU_9001, { ...NOTE3, advice: '太短' }))
+const badTopic = await call('/sections/mentor/1001/notes', json('POST', COU_9001, { ...NOTE3, topic: '学业规划' }))
+const badFuture = await call('/sections/mentor/1001/notes', json('POST', COU_9001, { ...NOTE3, talkDate: '2099-01-01' }))
+const badMissing = await call('/sections/mentor/1001/notes', json('POST', COU_9001, { ...NOTE3, advice: '' }))
+check(
+  '导师寄语：建议过短/中文主题/未来日期 → EC-42201，缺必填 → EC-42202',
+  badShort.body.code === 'EC-42201' && badTopic.body.code === 'EC-42201' &&
+    badFuture.body.code === 'EC-42201' && badMissing.body.code === 'EC-42202',
+  `${badShort.body.code},${badTopic.body.code},${badFuture.body.code},${badMissing.body.code}`,
+)
+
+const stuAppend = await call('/sections/mentor/1001/notes', json('POST', STU_1001, NOTE3))
+const otherCouAppend = await call('/sections/mentor/1001/notes', json('POST', COU_9002, NOTE3))
+check(
+  '导师寄语：学生与非本班辅导员追加被拒',
+  stuAppend.body.code === 'EC-40303' && otherCouAppend.body.code === 'EC-40302',
+  `${stuAppend.body.code},${otherCouAppend.body.code}`,
+)
+
+const FIRST_NOTE = ms.notes?.[1]?.id
+const feedback = `/sections/mentor/1001/notes/${FIRST_NOTE}/feedback`
+const fb1 = await call(feedback, json('POST', STU_1001, { academicYear: YEAR, feedback: '已报名校赛，每周刷题 20 道' }))
+const fb2 = await call(feedback, json('POST', STU_1001, { academicYear: YEAR, feedback: '再改一次' }))
+const fbLong = await call(
+  `/sections/mentor/1001/notes/${mc.notes?.[0]?.id}/feedback`,
+  json('POST', STU_1001, { academicYear: YEAR, feedback: 'x'.repeat(501) }),
+)
+check(
+  '导师寄语：反馈一次即锁定，二次 EC-40902，超长 EC-42201',
+  fb1.status === 200 && fb1.body.data?.canFeedback === false &&
+    fb2.body.code === 'EC-40902' && fbLong.body.code === 'EC-42201',
+  `${fb1.body.code},${fb2.body.code},${fbLong.body.code}`,
+)
+
+const putEmpty = await call('/sections/mentor/1001', json('PUT', STU_1001, { academicYear: YEAR, fields: {} }))
+const putNonEmpty = await call('/sections/mentor/1001', json('PUT', STU_1001, {
+  academicYear: YEAR, fields: { topic: 'ACADEMIC' },
+}))
+check(
+  '导师寄语：PUT 空 fields 幂等，非空 EC-40003 指路追加接口',
+  putEmpty.status === 200 && putEmpty.body.code === '0' &&
+    putNonEmpty.body.code === 'EC-40003',
+  `${putEmpty.body.code},${putNonEmpty.body.code}`,
+)
+
+const mSubmit = await call(`/sections/mentor/1001/submit?academicYear=${YEAR}`, { method: 'POST', headers: STU_1001 })
+const mWithdraw = await call(`/sections/mentor/1001/withdraw?academicYear=${YEAR}`, { method: 'POST', headers: STU_1001 })
+check(
+  '导师寄语：提交/撤回走公共状态机（不被主表必填卡住）',
+  mSubmit.body.code === '0' && mWithdraw.body.code === '0',
+  `${mSubmit.body.code},${mWithdraw.body.code}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)
