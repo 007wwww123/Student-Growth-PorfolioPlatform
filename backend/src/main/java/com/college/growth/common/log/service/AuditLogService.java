@@ -48,6 +48,9 @@ public class AuditLogService {
     /** 业务类型：学业成果（成绩/证书/竞赛）。 */
     public static final String BIZ_ACADEMIC = "ACADEMIC";
 
+    /** 业务类型：导出（F-12）。 */
+    public static final String BIZ_EXPORT = "EXPORT";
+
     /** 业务类型：组织架构变更（学院/专业/班级）。 */
     public static final String BIZ_ORG = "ORG";
 
@@ -78,6 +81,12 @@ public class AuditLogService {
     /** 动作：导入执行。 */
     public static final String ACTION_IMPORT = "IMPORT";
 
+    /** 动作：导出执行。 */
+    public static final String ACTION_EXPORT = "EXPORT";
+
+    /** 动作：文件下载。 */
+    public static final String ACTION_DOWNLOAD = "DOWNLOAD";
+
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
 
@@ -98,6 +107,9 @@ public class AuditLogService {
 
     /** 目标类型：学生主数据。 */
     public static final String TARGET_STUDENT = "STUDENT";
+
+    /** 目标类型：导出任务。 */
+    public static final String TARGET_EXPORT = "EXPORT_TASK";
 
     private final SysAuditLogMapper auditLogMapper;
 

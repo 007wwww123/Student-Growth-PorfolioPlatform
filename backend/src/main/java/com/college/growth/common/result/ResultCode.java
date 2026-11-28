@@ -27,7 +27,9 @@ public enum ResultCode {
 
     STATE_CONFLICT("EC-40902", 409, "当前状态不允许该操作"),
     WITHDRAW_EXCEEDED("EC-40903", 409, "撤回次数已用完"),
+    EXPORT_NOT_READY("EC-40905", 409, "板块尚未全部通过，暂不能导出"),
     VERSION_CONFLICT("EC-40907", 409, "内容已被他人修改，请刷新后重试"),
+    EXPORT_EXPIRED("EC-41001", 410, "下载链接已过期，请重新导出"),
 
     FIELD_VALIDATION_FAILED("EC-42201", 422, "字段校验未通过"),
     REQUIRED_FIELD_MISSING("EC-42202", 422, "必填内容未填写"),

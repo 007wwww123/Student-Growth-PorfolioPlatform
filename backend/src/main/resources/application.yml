@@ -71,6 +71,11 @@ security:
     ttl-hours: ${JWT_TTL_HOURS:8}
 
 growth:
+  export:
+    # 单人 PDF 落盘目录；为空时用系统临时目录下的 student-growth-export
+    dir: ${EXPORT_DIR:}
+    # 中文字体；生产镜像需内置字体并指向镜像内路径
+    font-path: ${EXPORT_FONT_PATH:C:/Windows/Fonts/simhei.ttf}
   completion:
     # 完成标记补偿重算（BR-S10）：每天 03:30 扫一遍当前学年，只处理绕过状态机的旁路数据
     refresh-enabled: ${COMPLETION_REFRESH_ENABLED:true}
