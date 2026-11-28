@@ -28,4 +28,19 @@ public class DashboardClassRow {
     private Integer returnedProfiles;
 
     private Integer draftProfiles;
+
+    /** 已提交板块数（SUBMITTED/APPROVED/RETURNED/LOCKED），退回率的分母。 */
+    private Integer submittedProfilesTotal;
+
+    /** 已审板块数（reviewed_at 与 submitted_at 均非空），即平均审核时长的样本量。 */
+    private Integer reviewedProfiles;
+
+    /**
+     * 已审板块的审核耗时之和（秒）。
+     *
+     * <p>只返回秒数之和、不返回班级平均值：整体平均必须用
+     * {@code sum(秒) / sum(份数) / 3600} 算，对班级均值再求平均会把小班与大队列等权，
+     * 得到一个谁都不是的「平均」。</p>
+     */
+    private Long reviewSeconds;
 }

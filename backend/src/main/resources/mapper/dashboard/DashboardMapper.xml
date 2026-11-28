@@ -10,6 +10,13 @@
        两处都用同一个表达式，否则「看板里的班」和「待审列表里的班」会对不上。
     2. 完成标记读 arc_profile.completed（由 S-1-10 维护），不在这里重算六板块规则。
     3. 只统计本学年有档案的学生：未建档学生没有行，看板用「建档进度」口径表达。
+    4. 退回率 = 当前 RETURNED 板块数 / 已提交板块数（SUBMITTED+APPROVED+RETURNED+LOCKED）。
+       分子分母都来自同一份班级行，避免两套 SQL 各数一遍。
+    5. 平均审核时长只统计 reviewed_at 与 submitted_at 都非空的板块，
+       按 TIMESTAMPDIFF(SECOND, submitted_at, reviewed_at) 取秒数；
+       班级只返回「已审份数 + 秒数之和」，整体值按秒数加权，绝不能对班级均值再求平均。
+       注意：板块被退回后学生重提会刷新 submitted_at，此时 reviewed_at 可能早于它，
+       该行仍按需求口径计入（差值为负），平均值因此可能偏小，口径变更需另立任务。
 
   两条查询共用 scope 片段，保证总数与板块分布出自同一数据范围。
 -->
@@ -45,7 +52,17 @@
                COUNT(DISTINCT CASE WHEN p.completed = 1 THEN p.student_id END) AS completedStudents,
                COALESCE(SUM(CASE WHEN p.status = 'SUBMITTED' THEN 1 ELSE 0 END), 0) AS submittedProfiles,
                COALESCE(SUM(CASE WHEN p.status = 'RETURNED' THEN 1 ELSE 0 END), 0) AS returnedProfiles,
-               COALESCE(SUM(CASE WHEN p.status = 'DRAFT' THEN 1 ELSE 0 END), 0) AS draftProfiles
+               COALESCE(SUM(CASE WHEN p.status = 'DRAFT' THEN 1 ELSE 0 END), 0) AS draftProfiles,
+               <!-- 退回率分母：已提交过（含已通过、已归档、被退回）的板块数 -->
+               COALESCE(SUM(CASE WHEN p.status IN ('SUBMITTED', 'APPROVED', 'RETURNED', 'LOCKED')
+                                 THEN 1 ELSE 0 END), 0) AS submittedProfilesTotal,
+               <!-- 平均审核时长样本：审核时间与提交时间都存在的板块 -->
+               COALESCE(SUM(CASE WHEN p.reviewed_at IS NOT NULL AND p.submitted_at IS NOT NULL
+                                 THEN 1 ELSE 0 END), 0) AS reviewedProfiles,
+               <!-- 只累加秒数，换算与四舍五入放到 Service，整体值才能按秒数加权 -->
+               COALESCE(SUM(CASE WHEN p.reviewed_at IS NOT NULL AND p.submitted_at IS NOT NULL
+                                 THEN TIMESTAMPDIFF(SECOND, p.submitted_at, p.reviewed_at) ELSE 0 END), 0)
+                   AS reviewSeconds
         <include refid="scope"/>
         GROUP BY <include refid="classKey"/>
         ORDER BY className IS NULL, className
