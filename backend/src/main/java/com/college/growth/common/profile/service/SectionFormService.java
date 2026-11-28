@@ -10,6 +10,7 @@ import com.college.growth.common.enums.ProfileStatusEnum;
 import com.college.growth.common.enums.SectionCodeEnum;
 import com.college.growth.common.enums.UserRoleEnum;
 import com.college.growth.common.exception.BusinessException;
+import com.college.growth.common.field.FieldOption;
 import com.college.growth.common.field.FieldValues;
 import com.college.growth.common.field.entity.ArcFieldDef;
 import com.college.growth.common.field.service.FieldDefService;
@@ -31,6 +32,7 @@ import com.college.growth.common.field.SensitiveMasker;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -68,13 +70,42 @@ public class SectionFormService {
             if (user.isAdminWithGrant() || hasRole(def.getVisibleRoles(), user)) {
                 int level = def.getSensitiveLevel() == null ? 0 : def.getSensitiveLevel();
                 boolean masked = level >= 2 || level == 1 && user.isStudent();
-                Object value = FieldValueCodec.read(def, items.get(def.getFieldCode()));
+                Object value = displayValue(def, FieldValueCodec.read(def, items.get(def.getFieldCode())));
                 fields.put(shortName(def), masked ? SensitiveMasker.maskValue(def.getFieldCode(), value) : value);
                 metadata.add(FieldMetaVO.from(def, writable && !user.isAdminWithGrant()
                         && hasRole(def.getEditableRoles(), user), masked));
             }
         }
         return new SectionFormView(status, fields, metadata.stream().anyMatch(FieldMetaVO::getEditable), metadata);
+    }
+
+    /**
+     * 历史值命中停用字典项时显示「label（已停用）」，不把原始 value 直接丢给用户。
+     * 只影响展示；保存时仍会按当前启用选项校验，要求用户主动移除停用项。
+     */
+    private Object displayValue(ArcFieldDef def, Object value) {
+        if (value == null || def.getOptionsJson() == null || def.getOptionsJson().isBlank()) {
+            return value;
+        }
+        List<FieldOption> options = FieldOption.parse(def.getOptionsJson());
+        if (options.isEmpty()) {
+            return value;
+        }
+        Map<String, FieldOption> byValue = options.stream()
+                .collect(Collectors.toMap(FieldOption::value, option -> option, (a, b) -> a));
+        if (value instanceof String text) {
+            return displayOne(text, byValue);
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(item -> item instanceof String text
+                    ? displayOne(text, byValue) : item).toList();
+        }
+        return value;
+    }
+
+    private Object displayOne(String value, Map<String, FieldOption> byValue) {
+        FieldOption option = byValue.get(value);
+        return option != null && option.disabled() ? option.label() + "（已停用）" : value;
     }
 
     @Transactional

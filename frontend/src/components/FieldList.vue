@@ -59,7 +59,7 @@ function canReveal(field: RenderField): boolean {
           :disabled="disabled(field)"
         >
           <option value="">请选择</option>
-          <option v-for="option in field.options" :key="option.value" :value="option.value">
+          <option v-for="option in field.options" :key="option.value" :value="option.value" :disabled="option.disabled">
             {{ option.label }}
           </option>
         </select>
