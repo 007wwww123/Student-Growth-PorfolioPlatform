@@ -12,7 +12,7 @@ async function worker() {
   while (Date.now() < stopAt) {
     const start = performance.now()
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
       statusCounts[res.status] = (statusCounts[res.status] || 0) + 1
       ok += 1
     } catch {
@@ -40,4 +40,4 @@ console.log(JSON.stringify({
   p95: pct(0.95).toFixed(1),
   p99: pct(0.99).toFixed(1),
 }))
-if (failed > 0) process.exit(1)
+process.exit(failed > 0 ? 1 : 0)

@@ -40,18 +40,19 @@
 | 前端 type-check/check:nav/smoke:mock/build | 全部通过 |
 | 权限矩阵 13 条 | `scripts/permission-matrix.ps1` 13/13 |
 | 安全冒烟 6 条 | `scripts/security-smoke.ps1` 6/6 |
-| 性能冒烟（健康接口 30 次） | avg 14.5ms / p95 13.6ms / max 93ms |
+| 性能验收（200 并发 10min） | 1,740,392 请求 / 0 失败 / 2,897 QPS / p95 127.8ms |
 | 数据一致性 | 5 项异常均为 0 |
 | Flyway 全新库 | 成功，24 张业务表 + history，48 字段 |
 | Flyway 存量库 | baseline 0 + V1，4 名学生数据保留 |
-| 五容器 compose | 配置校验通过；未实际启动 |
+| 五容器 compose | 已启动，5/5 healthy；Nginx/MinIO/MySQL/Redis 验证通过 |
 | CI | 已执行通过：backend / frontend / compose-config 三个 job success |
 
 ## 四、未完成 / 需签字
 
-- [ ] 200 并发持续 10 分钟压测（已做 200 并发 30s：13,548 请求、0 传输错误、p95 492ms）。
+- [x] 200 并发持续 10 分钟：1,740,392 请求、0 失败、2,897 QPS、p95 127.8ms、p99 175.1ms。
 - [ ] 完整安全扫描（依赖漏洞、XSS/CSRF 系统扫描、弱口令策略）。
-- [ ] 五容器实际启动、MinIO 接入与备份恢复演练（镜像源 403，未拉起）。
+- [x] 五容器实际启动（5/5 healthy，Nginx/MinIO/MySQL/Redis 已验证）。
+- [ ] MinIO 实际接入与备份恢复演练。
 - [x] 30 张表补齐（31 张业务表 = 30 规划 + notification）。
 - [x] 主表字段 51（ACADEMIC 8）。
 - [ ] 自动保存 35 秒浏览器级验收。
