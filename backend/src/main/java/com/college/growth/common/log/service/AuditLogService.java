@@ -57,6 +57,9 @@ public class AuditLogService {
     /** 业务类型：审批与临时授权。 */
     public static final String BIZ_GRANT = "GRANT";
 
+    /** 业务类型：变更申诉。 */
+    public static final String BIZ_APPEAL = "APPEAL";
+
     /** 业务类型：组织架构变更（学院/专业/班级）。 */
     public static final String BIZ_ORG = "ORG";
 

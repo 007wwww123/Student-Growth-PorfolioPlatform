@@ -19,6 +19,12 @@ public class SysApproval {
 
     private Long applicantId;
 
+    /** 关联学生（申诉/敏感导出）。 */
+    private Long studentId;
+
+    /** 关联业务 ID（如 change_id）。 */
+    private Long bizId;
+
     /** 申请参数，JSON 字符串，如 {"hours":2}。 */
     private String targetJson;
 

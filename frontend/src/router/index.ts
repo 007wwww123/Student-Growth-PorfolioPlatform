@@ -64,6 +64,12 @@ const router = createRouter({
       meta: { title: '导师寄语' },
     },
     {
+      path: '/changes',
+      name: 'changes',
+      component: () => import('@/views/ChangeLogView.vue'),
+      meta: { title: '变更记录', roles: ['STU', 'COU', 'ADMIN'] },
+    },
+    {
       path: '/review',
       name: 'review-list',
       component: () => import('@/views/review/ReviewListView.vue'),
