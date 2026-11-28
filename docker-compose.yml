@@ -1,13 +1,14 @@
-# 本地开发依赖（MySQL 8 + Redis 7），仅用于开发环境；生产按需求文档 1.4 用五容器编排。
-# 启动：docker compose up -d
+# 阶段 C：五容器编排（app / mysql / redis / minio / nginx）
+# 使用：cp .env.example .env && docker compose up -d --build
+# 首次启动由 Flyway 自动建表（V1 基线 = db/sql/01→29）
 services:
   mysql:
     image: mysql:8.0.32
     container_name: growth-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: student_growth
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-student_growth}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -18,15 +19,16 @@ services:
     volumes:
       - growth-mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   redis:
     image: redis:7-alpine
     container_name: growth-redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
     volumes:
@@ -34,9 +36,87 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    container_name: growth-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-growth}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-growth-minio-pass}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - growth-minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: growth-backend
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-student_growth}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-please-override-in-prod-32}
+      ID_CARD_KEY: ${ID_CARD_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-growth}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-growth-minio-pass}
+      FILE_DIR: /data/files
+      EXPORT_DIR: /data/export
+      EXPORT_FONT_PATH: /fonts/simhei.ttf
+    ports:
+      - "8080:8080"
+    volumes:
+      - growth-backend-data:/data
+      - ./fonts:/fonts:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/api/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: growth-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 10
 
 volumes:
   growth-mysql-data:
   growth-redis-data:
+  growth-minio-data:
+  growth-backend-data:

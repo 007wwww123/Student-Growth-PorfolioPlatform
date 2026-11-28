@@ -194,6 +194,7 @@ npm --prefix frontend run dev
 | 站内通知与自动保存（阶段 B） | **已完成**：`sys_notification` 覆盖提交待审/审核通过/退回/申诉结果；顶部铃铛未读数、已读/全部已读；六个板块页 35 秒无操作自动保存草稿（AC-012） |
 | 归档解冻与导师更正（阶段 B） | **已完成**：COU 申请、ADMIN 审批解冻，六板块 LOCKED→APPROVED 并留痕/通知；MENTOR 归档后只追加更正记录（`corrects_note_id`/`correction_reason`），不覆盖原文 |
 | 附件/文件服务（阶段 B） | **已完成**：`sys_file` 元数据 + 本地私有存储，10MB/图片/PDF 限制、随机文件名、SHA-256、上传/下载审计；`basic.photo` 支持上传、预览与辅导员确认 |
+| 上线工程（阶段 C） | **部分完成**：Flyway V1 基线（全新库/存量库均验证）、五容器 compose + Nginx、GitHub Actions CI、权限矩阵 13/13、安全冒烟 6/6、数据一致性 0 异常；30 表/正式 200 并发/UAT 签字未完成 |
 
 ## 七、协作约定
 

@@ -58,6 +58,16 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- 数据库迁移：V1 基线由 db/sql/01→29 生成，启动时校验/执行 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
         <!-- Excel 导入导出（F-09/F-10）：流式读写的底层实现，禁止全量加载大文件 -->
         <dependency>
             <groupId>org.apache.poi</groupId>
