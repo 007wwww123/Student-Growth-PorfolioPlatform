@@ -9,6 +9,7 @@ import com.college.growth.common.profile.FieldValueCodec;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
 import com.college.growth.common.profile.service.ProfileItemService;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.student.entity.StuStudent;
 import com.college.growth.common.util.TextUtils;
 import java.util.LinkedHashMap;
@@ -193,7 +194,7 @@ public class StudentSyncService {
         map.put("student_no", StuStudent::getStudentNo);
         map.put("gender", StuStudent::getGender);
         map.put("nation", StuStudent::getNation);
-        map.put("id_card", StuStudent::getIdCard);
+        map.put("id_card", student -> IdCardCrypto.plain(student.getIdCard(), student.getIdCardCipher()));
         map.put("native_place", StuStudent::getNativePlace);
         map.put("class_code", StuStudent::getClassCode);
         map.put("enrollment_year",

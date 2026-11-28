@@ -19,6 +19,7 @@ import com.college.growth.common.log.mapper.ArcChangeLogMapper;
 import com.college.growth.common.log.service.ChangeLogService;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.entity.ArcProfileItem;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.profile.mapper.ArcProfileItemMapper;
 import com.college.growth.common.profile.service.ProfileItemService;
 import com.college.growth.common.student.entity.StuStudent;
@@ -155,7 +156,9 @@ class StudentSyncServiceTest {
         assertFalse(idCardLog.getNewValue().contains("320102200201011232"));
         assertTrue(idCardLog.getNewValue().contains("****"));
         // 档案里仍然是明文，脱敏只发生在日志
-        assertEquals("320102200201011232", items.get("basic.idCard").getValueText());
+        assertTrue(IdCardCrypto.isEncrypted(items.get("basic.idCard").getValueText()));
+        assertEquals("320102200201011232",
+                IdCardCrypto.decrypt(items.get("basic.idCard").getValueText()));
     }
 
     @Test

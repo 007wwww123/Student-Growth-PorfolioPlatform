@@ -68,7 +68,7 @@ backend/
 │   │   │   └── mentor/                          # 板块六 导师寄语
 │   │   └── resources/
 │   │       ├── application.yml                   # 端口、数据源、Redis、JWT、Jackson、MyBatis-Plus、日志
-│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 21 顺序执行
+│   │       ├── db/sql/                           # 建表与种子脚本，按 01 → 22 顺序执行
 │   │       └── mapper/
 │   │           ├── review/                       # 待审列表 SQL
 │   │           └── dashboard/                     # 看板聚合 SQL（两条分组查询）
@@ -392,6 +392,7 @@ DRAFT（草稿） → SUBMITTED（已提交） → APPROVED（已通过） → L
 | `REDIS_DATABASE` / `REDIS_PASSWORD` | `0` / 空 | Redis 库号与口令 |
 | `JWT_SECRET` | 32 位开发用默认值 | 令牌签名密钥，**生产必须覆盖**；少于 32 字符启动失败 |
 | `JWT_TTL_HOURS` | `8` | 令牌有效期（小时），同时决定吊销名单的 TTL 上限 |
+| `ID_CARD_KEY` | 开发用固定密钥 | 身份证 AES-256-GCM 密钥，base64 编码的 32 字节；**生产必须覆盖**，否则重启后无法解密历史数据 |
 | `LOG_LEVEL_APP` | `debug` | 业务包日志级别，生产建议 `info` |
 | `COMPLETION_REFRESH_ENABLED` | `true` | 完成标记定时补偿开关；多实例部署时可只在一台上开启 |
 | `COMPLETION_REFRESH_CRON` | `0 30 3 * * ?` | 补偿任务执行时间，Spring 6 段 cron |
@@ -415,7 +416,7 @@ docker compose up -d
 
 ### 数据库初始化（首次启动前）
 
-建库脚本在 `src/main/resources/db/sql/`，二十一个文件按文件名前缀数字 **01 → 21** 顺序执行；脚本幂等，可重复跑：
+建库脚本在 `src/main/resources/db/sql/`，二十二个文件按文件名前缀数字 **01 → 22** 顺序执行；脚本幂等，可重复跑：
 
 ```bash
 # 01 建表：板块实例、字段定义、字段值、变更日志、班级
@@ -456,6 +457,12 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/re
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/18_academic_records.sql
 # 19 学业成果导入权限（ADMIN 补 import:rank / import:cert）
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/19_academic_import_permissions.sql
+# 20 单人档案 PDF 导出任务表 sys_export_task（F-12）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/20_profile_export.sql
+# 21 登录日志表 sys_login_log（F-14）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/21_login_log.sql
+# 22 身份证加密列 id_card_cipher / id_card_hash（应用启动时迁移存量）
+mysql -uroot -proot --default-character-set=utf8mb4 student_growth < src/main/resources/db/sql/22_id_card_encryption.sql
 
 # 自检：六板块应为 16 / 5 / 4 / 12 / 5 / 6，合计 48 个字段；SIS 映射 7；students=4、users=8
 mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
@@ -483,7 +490,7 @@ mysql -uroot -proot --default-character-set=utf8mb4 student_growth -e \
 > 不指定时中文 COMMENT 转换失败会导致整条 `CREATE TABLE` 被跳过（现象是"执行成功但表没建出来"）。
 
 > Windows 下在 Git Bash 或 IDEA 的 Database 控制台执行；若库尚未创建，先 `CREATE DATABASE student_growth DEFAULT CHARSET utf8mb4;`。
-> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 21` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
+> 暂未引入 Flyway：脚本是普通 SQL，按 `01 → 22` 顺序手工执行。将来接入 Flyway 时，改名为 `V1__`、`V2__` 前缀并移入 `db/migration` 即可纳管。
 
 **已知版本差异**
 

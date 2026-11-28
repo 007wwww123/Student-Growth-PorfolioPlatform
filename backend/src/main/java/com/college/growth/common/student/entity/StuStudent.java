@@ -39,6 +39,12 @@ public class StuStudent {
     /** 身份证号，18 位；接入加密后改密文列。 */
     private String idCard;
 
+    /** 身份证密文（AES-256-GCM，enc:v1: 前缀），迁移后明文列为空。 */
+    private String idCardCipher;
+
+    /** 身份证 SHA-256 十六进制哈希，用于唯一性比对。 */
+    private String idCardHash;
+
     /** 籍贯。 */
     private String nativePlace;
 

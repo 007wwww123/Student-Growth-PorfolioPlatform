@@ -17,6 +17,7 @@ import com.college.growth.common.org.mapper.OrgClassMapper;
 import com.college.growth.common.profile.entity.ArcProfile;
 import com.college.growth.common.profile.mapper.ArcProfileMapper;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.student.entity.StuStudent;
 import com.college.growth.common.student.mapper.StuStudentMapper;
 import com.college.growth.common.util.TextUtils;
@@ -324,9 +325,9 @@ public class StudentImportServiceImpl implements StudentImportService {
                 check.errors.add("身份证号不能为空");
             } else if (!isValidIdCard(row.getIdCard())) {
                 check.errors.add("身份证号校验位不正确");
-            } else if (!seenIdCards.add(row.getIdCard())) {
+            } else if (!seenIdCards.add(IdCardCrypto.hash(row.getIdCard()))) {
                 check.errors.add("身份证号在文件中重复");
-            } else if (existingIdCards.contains(row.getIdCard())) {
+            } else if (existingIdCards.contains(IdCardCrypto.hash(row.getIdCard()))) {
                 check.errors.add("身份证号已存在");
             }
             if (TextUtils.isBlank(row.getClassCode())) {
@@ -400,7 +401,9 @@ public class StudentImportServiceImpl implements StudentImportService {
         student.setName(row.getName());
         student.setGender(row.getGender());
         student.setNation(TextUtils.isBlank(row.getNation()) ? null : row.getNation());
-        student.setIdCard(row.getIdCard());
+        student.setIdCard(null);
+        student.setIdCardCipher(IdCardCrypto.encrypt(row.getIdCard()));
+        student.setIdCardHash(IdCardCrypto.hash(row.getIdCard()));
         student.setNativePlace(TextUtils.isBlank(row.getNativePlace()) ? null : row.getNativePlace());
         student.setClassCode(row.getClassCode());
         student.setEnrollmentYear(Integer.parseInt(row.getEnrollmentYear()));

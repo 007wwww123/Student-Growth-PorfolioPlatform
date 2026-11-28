@@ -24,6 +24,7 @@ import com.college.growth.common.org.entity.OrgClass;
 import com.college.growth.common.org.mapper.OrgClassMapper;
 import com.college.growth.common.result.PageResult;
 import com.college.growth.common.result.ResultCode;
+import com.college.growth.common.security.IdCardCrypto;
 import com.college.growth.common.student.entity.StuStudent;
 import com.college.growth.common.student.mapper.StuStudentMapper;
 import com.college.growth.common.util.TextUtils;
@@ -376,7 +377,7 @@ public class AccountServiceImpl implements AccountService {
 
     /** 初始密码：身份证后六位（DC-04）；无身份证时退化为学号后六位。 */
     private String initialPasswordOf(StuStudent student) {
-        String idCard = student.getIdCard();
+        String idCard = IdCardCrypto.plain(student.getIdCard(), student.getIdCardCipher());
         if (!TextUtils.isBlank(idCard) && idCard.length() >= 6) {
             return idCard.substring(idCard.length() - 6);
         }
