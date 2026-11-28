@@ -800,6 +800,81 @@ check(
   `code=${lifeWithdrawTwice.body.code}`,
 )
 
+// 16. 职业规划：学生保存→提交→撤回、必填拦截、辅导员只读
+const careerDetail = await call(`/sections/career/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const careerIntention = (careerDetail.body.data?.fieldMeta ?? [])
+  .find((field: Record<string, any>) => field.key === 'intention')
+check(
+  '职业规划：学生详情 5 个字段，发展意向为必填且选项为英文码',
+  careerDetail.status === 200 &&
+    careerDetail.body.data?.sectionCode === 'CAREER' &&
+    (careerDetail.body.data?.fieldMeta ?? []).length === 5 &&
+    careerIntention?.required === true &&
+    careerIntention?.editable === true &&
+    (careerIntention?.options ?? []).map((option: Record<string, any>) => option.value).join(',') ===
+      'EMPLOY,POSTGRAD,OVERSEAS,STARTUP,UNDECIDED',
+  `meta=${careerDetail.body.data?.fieldMeta?.length} required=${careerIntention?.required}`,
+)
+
+const careerPartialSave = await call(`/sections/career/1001`, json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: { industry: '工业软件' },
+}))
+const careerSubmitMissing = await call(`/sections/career/1001/submit?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+check(
+  '职业规划：只填非必填项时提交被拒（EC-42202）',
+  careerPartialSave.status === 200 &&
+    careerSubmitMissing.status === 422 &&
+    careerSubmitMissing.body.code === 'EC-42202',
+  `code=${careerSubmitMissing.body.code}`,
+)
+
+const careerSave = await call('/sections/career/1001', json('PUT', STU_1001, {
+  academicYear: YEAR,
+  fields: {
+    intention: 'POSTGRAD',
+    industry: '工业软件',
+    position: '后端开发工程师',
+    plan: '已完成两个 Spring Boot 项目，刷题 200 道',
+    support: '希望获得实习内推与简历修改建议',
+  },
+}))
+const careerAfterSave = await call(`/sections/career/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const careerCou = await call(`/sections/career/1001?academicYear=${YEAR}`, { headers: COU_9001 })
+check(
+  '职业规划：保存后完成度 100%，意向存英文码，辅导员可读但不可写',
+  careerSave.status === 200 &&
+    careerAfterSave.body.data?.completeness === 100 &&
+    careerAfterSave.body.data?.fields?.intention === 'POSTGRAD' &&
+    careerCou.body.data?.fields?.intention === 'POSTGRAD' &&
+    (careerCou.body.data?.fieldMeta ?? []).every((field: Record<string, any>) => field.editable === false),
+  `complete=${careerAfterSave.body.data?.completeness} couEditable=${(careerCou.body.data?.fieldMeta ?? []).some((f: Record<string, any>) => f.editable)}`,
+)
+
+const careerSubmit = await call(`/sections/career/1001/submit?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const careerAfterSubmit = await call(`/sections/career/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+const careerWithdraw = await call(`/sections/career/1001/withdraw?academicYear=${YEAR}`, {
+  method: 'POST',
+  headers: STU_1001,
+})
+const careerAfterWithdraw = await call(`/sections/career/1001?academicYear=${YEAR}`, { headers: STU_1001 })
+check(
+  '职业规划：提交后锁定、撤回一次回到草稿',
+  careerSubmit.status === 200 &&
+    careerAfterSubmit.body.data?.status === 'SUBMITTED' &&
+    careerAfterSubmit.body.data?.editable === false &&
+    careerWithdraw.status === 200 &&
+    careerAfterWithdraw.body.data?.status === 'DRAFT' &&
+    careerAfterWithdraw.body.data?.withdrawCount === 1,
+  `submit=${careerAfterSubmit.body.data?.status} withdraw=${careerAfterWithdraw.body.data?.status}`,
+)
+
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL')).length
 console.log(`\n合计 ${results.length} 项，失败 ${failed} 项`)
