@@ -42,6 +42,33 @@ public class AuditLogService {
     /** 业务类型：字段编辑权限配置（管理员模式）。 */
     public static final String BIZ_PERMISSION_CONFIG = "PERMISSION_CONFIG";
 
+    /** 业务类型：组织架构变更（学院/专业/班级）。 */
+    public static final String BIZ_ORG = "ORG";
+
+    /** 业务类型：账号生命周期。 */
+    public static final String BIZ_ACCOUNT = "ACCOUNT";
+
+    /** 动作：新增。 */
+    public static final String ACTION_CREATE = "CREATE";
+
+    /** 动作：修改。 */
+    public static final String ACTION_UPDATE = "UPDATE";
+
+    /** 动作：启用。 */
+    public static final String ACTION_ENABLE = "ENABLE";
+
+    /** 动作：停用。 */
+    public static final String ACTION_DISABLE = "DISABLE";
+
+    /** 动作：绑定/分配。 */
+    public static final String ACTION_ASSIGN = "ASSIGN";
+
+    /** 动作：分配角色。 */
+    public static final String ACTION_ROLE_ASSIGN = "ROLE_ASSIGN";
+
+    /** 动作：批量开通账号。 */
+    public static final String ACTION_BATCH_OPEN = "BATCH_OPEN";
+
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
 
@@ -53,6 +80,12 @@ public class AuditLogService {
 
     /** 目标类型：字段定义（权限配置的作用对象）。 */
     public static final String TARGET_FIELD_DEF = "FIELD_DEF";
+
+    /** 目标类型：组织节点（学院/专业/班级）。 */
+    public static final String TARGET_ORG = "ORG";
+
+    /** 目标类型：账号。 */
+    public static final String TARGET_USER = "USER";
 
     private final SysAuditLogMapper auditLogMapper;
 
