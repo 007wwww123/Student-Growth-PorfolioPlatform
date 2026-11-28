@@ -22,6 +22,12 @@ public class ArcMentorNote {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
+    /** 更正的原记录 ID；空表示普通谈话记录。 */
+    private Long correctsNoteId;
+
+    /** 更正原因。 */
+    private String correctionReason;
+
     /** 所属 MENTOR 板块实例（{@code arc_profile.id}）。 */
     private Long profileId;
 

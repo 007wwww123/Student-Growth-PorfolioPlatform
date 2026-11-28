@@ -243,6 +243,42 @@ public class MentorSectionServiceImpl implements MentorSectionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public MentorNoteVO correct(Long studentId, com.college.growth.mentor.dto.MentorCorrectionDTO dto) {
+        String year = AcademicYearUtils.resolve(dto.getAcademicYear());
+        CurrentUser user = UserContext.get();
+        if (!user.isCounselor()) {
+            throw new BusinessException(ResultCode.PERMISSION_DENIED, "仅该班辅导员可追加更正记录");
+        }
+        classes.requireStudentScope(studentId, year, user);
+        ArcProfile profile = locator.find(studentId, MentorConstants.SECTION_CODE, year);
+        if (profile == null || !ProfileStatusEnum.LOCKED.name().equals(profile.getStatus())) {
+            throw new BusinessException(ResultCode.STATE_CONFLICT, "只有已归档的 MENTOR 板块才能追加更正记录");
+        }
+        ArcMentorNote original = dto.getNoteId() == null ? null : notes.selectById(dto.getNoteId());
+        if (original == null || !profile.getId().equals(original.getProfileId())) {
+            throw new BusinessException(ResultCode.PARAM_MISSING, "原谈话记录不存在");
+        }
+        ArcMentorNote note = new ArcMentorNote();
+        note.setProfileId(profile.getId());
+        note.setStudentId(studentId);
+        note.setAcademicYear(year);
+        note.setTalkDate(java.time.LocalDate.now());
+        note.setTopic(original.getTopic());
+        note.setAdvice(dto.getAdvice().trim());
+        note.setStarLevel(original.getStarLevel() == null ? 0 : original.getStarLevel());
+        note.setCounselorId(user.userId());
+        note.setCorrectsNoteId(original.getId());
+        note.setCorrectionReason(dto.getReason().trim());
+        notes.insert(note);
+        history.record(profile, MentorConstants.BIZ_MENTOR_APPEND, MentorConstants.FIELD_NOTE,
+                null, "更正记录 #" + note.getId(), null, null, dto.getReason().trim());
+        audit.record("ARCHIVE", AuditLogService.TARGET_PROFILE, profile.getId(), studentId,
+                MentorConstants.SECTION_CODE, null, "CORRECT", "归档后更正：" + dto.getReason().trim());
+        return MentorSectionUtils.toView(note, true, false, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public MentorNoteVO feedback(Long studentId, Long noteId, MentorFeedbackDTO dto) {
         String year = AcademicYearUtils.resolve(dto.getAcademicYear());
         requireOwner(studentId);
