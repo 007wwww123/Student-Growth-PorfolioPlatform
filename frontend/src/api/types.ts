@@ -469,3 +469,76 @@ export interface PermissionSaveResult {
   changed: number
   section: SectionPermission
 }
+
+/**
+ * 台账明细行的状态：状态机五态 + 未建档虚拟状态。
+ *
+ * `UNARCHIVED` 不是状态机的第六个状态——它只表示该学生本学年没有任何板块档案，
+ * 不会出现在 `arc_profile.status` 里。
+ */
+export type LedgerRowStatus = ProfileStatus | 'UNARCHIVED'
+
+/** 台账筛选状态：在行状态之上增加 `ALL`（不按状态过滤，接口默认值）。 */
+export type LedgerStatus = LedgerRowStatus | 'ALL'
+
+/** 班级完成度汇总行，对应后端 LedgerClassVO。 */
+export interface LedgerClassRow {
+  /** 班级编码；未分班时为「未分班」 */
+  classCode: string
+  className?: string
+  /** 在册学生数，也是完成率的分母 */
+  studentTotal: number
+  /** 本学年至少有一个板块档案的学生数 */
+  archivedStudents: number
+  /** 本学年没有任何板块档案的学生数 */
+  unarchivedStudents: number
+  /** 六板块全部完成的学生数（读 arc_profile.completed） */
+  completedStudents: number
+  /** 完成率百分比，一位小数；分母为 0 时为 0 */
+  completionRate: number
+  /** 待审核板块数 */
+  pendingProfiles: number
+  returnedProfiles: number
+  draftProfiles: number
+}
+
+/**
+ * 台账明细行，对应后端 LedgerRowVO。
+ *
+ * 未建档学生也会出现：profileId / sectionCode 为空、status 为 `UNARCHIVED`，
+ * 每个学生一行。前端不要按 sectionCode 是否存在来过滤行，否则会漏掉未建档名单。
+ */
+export interface LedgerRow {
+  /** 板块实例 ID；未建档行没有 */
+  profileId?: number
+  studentId: number
+  studentNo?: string
+  studentName?: string
+  classCode?: string
+  className?: string
+  /** 板块编码，大写；未建档行为空 */
+  sectionCode?: string
+  sectionName?: string
+  status: LedgerRowStatus
+  statusLabel?: string
+  /** 完成度百分比；未建档行为空 */
+  completeness?: number
+  submitCount?: number
+  submittedAt?: string
+  reviewedAt?: string
+  reviewerId?: number
+  reviewerName?: string
+}
+
+/** 台账明细查询条件，辅导员的数据范围始终由服务端限定在本班。 */
+export interface LedgerTaskQuery {
+  academicYear?: string
+  /** 班级编码；为空表示全部班级 */
+  classCode?: string
+  /** 状态，默认 ALL */
+  status?: LedgerStatus
+  /** 姓名或学号模糊匹配 */
+  keyword?: string
+  pageNum?: number
+  pageSize?: number
+}

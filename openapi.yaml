@@ -162,6 +162,8 @@ tags:
     description: 统一响应结构与错误码
   - name: 管理员
     description: 管理员模式：按板块配置字段编辑权限；只配置权限，不修改档案内容
+  - name: 台账
+    description: 班级台账与状态筛选（F-07）；辅导员仅本班，管理员需持临时授权
 
 security:
   - bearerAuth: []
@@ -924,6 +926,129 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ledger/classes:
+    get:
+      tags: [台账]
+      operationId: listLedgerClasses
+      summary: 班级完成度汇总
+      description: |
+        班级台账顶部的完成度汇总（F-07）。每个班一行：在册学生数、已建档/未建档人数、
+        六板块全部完成人数、整班完成率，以及待审/退回/草稿板块数。
+
+        口径：
+        - 分母是**在册学生数**（`stu_student.status = 1` 且班级在数据范围内），
+          未建档学生也计入分母——否则全员未建档的班会显示 0/0，台账就看不到缺口；
+        - 班级取值与首页看板一致：`stu_student.class_code` → `basic.classId` → `未分班`；
+        - 完成数读 `arc_profile.completed`，不在查询时重算六板块规则；
+        - 没有学生的启用班级也会返回，各项为 0（AC-005：绑定辅导员后可见该班台账）。
+
+        数据范围由服务端收口：辅导员只看 `org_class.counselor_user_id = 当前用户` 的班；
+        管理员需持临时授权才能看全部；学生与无授权管理员返回 `EC-40302`。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/LedgerClassVO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /ledger/tasks:
+    get:
+      tags: [台账]
+      operationId: listLedgerTasks
+      summary: 台账明细与状态筛选
+      description: |
+        班级台账明细（F-07 / AC-020）。一行 = 一个学生 × 一个板块档案；
+        本学年没有任何板块档案的学生补一行虚拟行：
+        `profileId` / `sectionCode` 为空、`status = UNARCHIVED`、`statusLabel = 未建档`，每个学生一行。
+
+        **计数一致性**：`total` 与 `records` 由两条手写 SQL 产生（UNION ALL 含未建档行），
+        共用同一段过滤条件；筛选「待审核」时若本班有 5 份待审，`total` 与当页行数合计即为 5（AC-020）。
+
+        数据范围：辅导员只看所带班级，管理员需持临时授权。
+        班级编码越权返回 `EC-40302`；班级不存在返回 `EC-40003`；非法状态返回 `EC-40003`。
+      parameters:
+        - $ref: '#/components/parameters/AcademicYearQuery'
+        - name: classCode
+          in: query
+          required: false
+          description: |
+            班级编码，如 `RJ2401`；不传表示全部班级。
+            `未分班` 是合法取值（管理员视角的未分班桶）；辅导员传任意非本班值返回 `EC-40302`。
+          schema:
+            type: string
+            example: RJ2401
+        - name: status
+          in: query
+          required: false
+          description: |
+            板块状态，默认 `ALL`（不过滤）。`UNARCHIVED` 表示本学年没有任何板块档案的学生；
+            其他值必须是状态机五态之一，否则返回 `EC-40003`。
+          schema:
+            type: string
+            enum: [ALL, DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED, UNARCHIVED]
+            default: ALL
+            example: SUBMITTED
+        - name: keyword
+          in: query
+          required: false
+          description: 姓名或学号模糊匹配，前后空格会被去掉
+          schema:
+            type: string
+            example: 李明
+        - name: pageNum
+          in: query
+          required: false
+          description: 页码，从 1 开始，默认 1
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          description: 每页条数，默认 20，最大 100
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LedgerRowPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -3524,7 +3649,7 @@ components:
 
     PageResult:
       type: object
-      description: 分页载体，列表类接口统一使用（班级台账、审计日志等，本期尚未开放）
+      description: 分页载体，列表类接口统一使用（班级台账、审计日志等）
       required: [records, total, pageNum, pageSize]
       properties:
         records:
@@ -3922,6 +4047,151 @@ components:
           type: integer
           format: int64
           example: 12
+        pageNum:
+          type: integer
+          format: int64
+          example: 1
+        pageSize:
+          type: integer
+          format: int64
+          example: 20
+
+    LedgerClassVO:
+      type: object
+      description: 班级完成度汇总行（对应后端 LedgerClassVO）
+      required: [classCode, studentTotal, archivedStudents, unarchivedStudents, completedStudents, completionRate, pendingProfiles, returnedProfiles, draftProfiles]
+      properties:
+        classCode:
+          type: string
+          description: 班级编码；未分班桶为 `未分班`
+          example: RJ2401
+        className:
+          type: string
+          description: 班级名称；班级已删除或未分班时回落为编码
+          example: 软件2401
+        studentTotal:
+          type: integer
+          description: 在册学生数（完成率分母）
+          example: 40
+        archivedStudents:
+          type: integer
+          description: 本学年至少有一个板块档案的学生数
+          example: 38
+        unarchivedStudents:
+          type: integer
+          description: 本学年没有任何板块档案的学生数，等于 studentTotal - archivedStudents
+          example: 2
+        completedStudents:
+          type: integer
+          description: 六板块全部完成的学生数（读 arc_profile.completed）
+          example: 30
+        completionRate:
+          type: number
+          description: 整班完成率百分比，一位小数；分母为 0 时为 0
+          example: 75.0
+        pendingProfiles:
+          type: integer
+          description: 待审核板块数（SUBMITTED）
+          example: 5
+        returnedProfiles:
+          type: integer
+          description: 已退回板块数（RETURNED）
+          example: 1
+        draftProfiles:
+          type: integer
+          description: 草稿板块数（DRAFT）
+          example: 12
+
+    LedgerRowVO:
+      type: object
+      description: 台账明细行（一个学生 × 一个板块档案；未建档行只有学生维度）
+      required: [studentId, status, statusLabel]
+      properties:
+        profileId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 板块实例 ID；未建档行为空
+          example: 3001
+        studentId:
+          type: integer
+          format: int64
+          example: 1001
+        studentNo:
+          type: string
+          description: 学号，取自 stu_student.student_no
+          example: '2024010101'
+        studentName:
+          type: string
+          description: 学生姓名，优先取学籍姓名，缺失时回退基本信息板块
+          example: 李明
+        classCode:
+          type: string
+          description: 班级编码；stu_student.class_code → basic.classId → 未分班
+          example: RJ2401
+        className:
+          type: string
+          description: 班级名称，取自 org_class
+          example: 软件2401
+        sectionCode:
+          type: string
+          nullable: true
+          description: 板块编码，大写；未建档行为空
+          example: BASIC
+        sectionName:
+          type: string
+          nullable: true
+          description: 板块中文名；未建档行为空
+          example: 基本信息
+        status:
+          type: string
+          enum: [DRAFT, SUBMITTED, RETURNED, APPROVED, LOCKED, UNARCHIVED]
+          example: SUBMITTED
+        statusLabel:
+          type: string
+          description: 状态中文名；UNARCHIVED 为「未建档」
+          example: 已提交
+        completeness:
+          type: number
+          nullable: true
+          description: 完成度百分比；未建档行为空
+          example: 100.00
+        submitCount:
+          type: integer
+          description: 提交次数；未建档行为 0
+          example: 1
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewerId:
+          type: integer
+          format: int64
+          nullable: true
+        reviewerName:
+          type: string
+          nullable: true
+          description: 审核人展示名，取自 sys_user.display_name
+          example: 王老师
+
+    LedgerRowPage:
+      type: object
+      description: 台账明细分页结果
+      required: [records, total, pageNum, pageSize]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerRowVO'
+        total:
+          type: integer
+          format: int64
+          description: 过滤后的总行数，与 records 使用同一段过滤条件
+          example: 5
         pageNum:
           type: integer
           format: int64

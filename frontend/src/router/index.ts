@@ -82,6 +82,13 @@ const router = createRouter({
       meta: { title: '审核工作台', roles: ['COU', 'ADMIN'] },
     },
     {
+      path: '/ledger',
+      name: 'ledger-list',
+      component: () => import('@/views/ledger/LedgerView.vue'),
+      // 台账是业务数据视图：辅导员只看本班，管理员需持临时授权（服务端二次校验）
+      meta: { title: '班级台账', roles: ['COU', 'ADMIN'] },
+    },
+    {
       path: '/review/:code/:studentId',
       name: 'review-detail',
       component: () => import('@/views/review/ReviewDetailView.vue'),
@@ -223,7 +230,7 @@ router.beforeEach((to) => {
   if (current?.role === 'ADMIN' && current.tempGrant !== true) {
     const name = String(to.name ?? '')
     const needsBusinessData =
-      name === 'home' || name.startsWith('section-') || name.startsWith('review')
+      name === 'home' || name.startsWith('section-') || name.startsWith('review') || name.startsWith('ledger')
     if (needsBusinessData) {
       return { name: 'admin-permissions' }
     }
