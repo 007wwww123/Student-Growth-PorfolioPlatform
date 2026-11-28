@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -29,6 +30,13 @@ public class FieldValidatorRegistry {
             }
         }
         this.validators = Map.copyOf(index);
+    }
+
+    /**
+     * 已注册的校验器标识集合，供字段定义配置页展示与校验。
+     */
+    public Set<String> codes() {
+        return validators.keySet();
     }
 
     /**

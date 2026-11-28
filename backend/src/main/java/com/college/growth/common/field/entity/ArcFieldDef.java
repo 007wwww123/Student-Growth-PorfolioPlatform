@@ -85,7 +85,7 @@ public class ArcFieldDef {
     private LocalDateTime updatedAt;
 
     /** 是否必填。 */
-    public boolean isRequired() {
+    public boolean isRequiredFlag() {
         return required != null && required == 1;
     }
 

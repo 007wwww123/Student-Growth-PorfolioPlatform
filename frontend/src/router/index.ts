@@ -97,6 +97,13 @@ const router = createRouter({
       meta: { title: '字段权限配置', roles: ['ADMIN'] },
     },
     {
+      path: '/admin/fields',
+      name: 'admin-fields',
+      component: () => import('@/views/admin/FieldDefView.vue'),
+      // 管理员专属：字段定义增改、必填/类型/选项/权限位配置
+      meta: { title: '字段定义', roles: ['ADMIN'] },
+    },
+    {
       path: '/admin/org',
       name: 'admin-org',
       component: () => import('@/views/admin/OrgView.vue'),

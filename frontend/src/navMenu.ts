@@ -117,6 +117,15 @@ const PERMISSION_ITEM: NavItem = {
   matchNames: ['admin-permissions'],
 }
 
+/** 字段定义：管理员专属，维护字段类型/必填/校验器/选项/权限位。 */
+const FIELD_DEF_ITEM: NavItem = {
+  key: 'field-defs',
+  label: '字段定义',
+  icon: 'settings',
+  to: '/admin/fields',
+  matchNames: ['admin-fields'],
+}
+
 /** 组织架构：管理员专属，维护学院/专业/班级与辅导员绑定（不接触档案内容）。 */
 const ORG_ITEM: NavItem = {
   key: 'org',
@@ -164,7 +173,7 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
   if (role === 'ADMIN' && !tempGrant) {
     // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现；
     // 系统管理（字段权限、组织架构、账号管理）不接触档案内容，保留。
-    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, ORG_ITEM, ACCOUNT_ITEM] }]
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, ORG_ITEM, ACCOUNT_ITEM] }]
   }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
@@ -178,7 +187,7 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
     }
     // 字段权限、组织架构、账号管理是管理员专属；辅导员不出现，路由守卫也会拦截
     if (role === 'ADMIN') {
-      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, ORG_ITEM, ACCOUNT_ITEM] })
+      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, FIELD_DEF_ITEM, ORG_ITEM, ACCOUNT_ITEM] })
     }
     return groups
   }
