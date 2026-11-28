@@ -241,6 +241,49 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /auth/password:
+    post:
+      tags: [平台公共]
+      operationId: changePassword
+      summary: 修改本人密码
+      description: |
+        校验原密码后设置新密码，对应权限点 `auth:password:self`（三端都可调用）。
+
+        新密码需 8–20 位且包含大写字母、小写字母、数字、符号中的至少三类，
+        不满足返回 `EC-42204`；原密码不正确返回 `EC-42206`（用 422 而非 401，
+        避免前端把它当成会话过期）。
+
+        改密成功后令牌版本号加一，所有旧令牌在下一次请求即失效，
+        因此响应结构与登录一致，前端必须用返回的新令牌覆盖本地会话。
+        首次登录未改密（`mustChangePassword=true`）时只能访问本接口、
+        `/auth/me` 与 `/auth/logout`，其余接口返回 `EC-40305`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordDTO'
+            example:
+              oldPassword: Passw0rd!
+              newPassword: NewPassw0rd!
+      responses:
+        '200':
+          description: 修改成功，返回新令牌与用户信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /sections/{code}/{studentId}:
     get:
       tags: [平台公共]
@@ -3309,6 +3352,27 @@ components:
           example: 28800
         user:
           $ref: '#/components/schemas/UserVO'
+        mustChangePassword:
+          type: boolean
+          description: 是否必须先改密（BR-A04）；为 `true` 时除改密接口外一律 `EC-40305`
+          example: false
+
+    ChangePasswordDTO:
+      type: object
+      description: 修改本人密码入参
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword:
+          type: string
+          maxLength: 128
+          description: 当前密码，仅经 HTTPS 传输
+          example: Passw0rd!
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 20
+          description: 新密码，需包含大写、小写、数字、符号中的至少三类（BR-A02）
+          example: NewPassw0rd!
 
     UserVO:
       type: object
@@ -3346,6 +3410,10 @@ components:
         tempGrant:
           type: boolean
           description: 管理员是否持临时只读授权；非管理员恒为 `false`
+          example: false
+        mustChangePassword:
+          type: boolean
+          description: 首次登录未改密时为 `true`，前端应把用户锁在改密页（BR-A04）
           example: false
 
     LoginDTO:

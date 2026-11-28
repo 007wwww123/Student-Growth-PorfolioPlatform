@@ -15,6 +15,7 @@ import com.college.growth.account.vo.ResetPasswordResultVO;
 import com.college.growth.auth.entity.SysUser;
 import com.college.growth.auth.mapper.SysUserMapper;
 import com.college.growth.auth.service.PasswordHasher;
+import com.college.growth.auth.service.PasswordPolicy;
 import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.UserRoleEnum;
@@ -152,6 +153,8 @@ public class AccountServiceImpl implements AccountService {
         user.setPasswordHash(passwordHasher.hash(initialPassword));
         user.setStatus(ENABLED);
         user.setTempGrant(0);
+        // 初始密码只交付一次，首次登录必须改密（BR-A04 / AC-004）
+        user.setMustChangePassword(1);
         userMapper.insert(user);
         audit(AuditLogService.ACTION_CREATE, user.getId(), "开通账号：" + user.getUsername()
                 + "（" + role.getLabel() + "）");
@@ -175,6 +178,11 @@ public class AccountServiceImpl implements AccountService {
         String password = TextUtils.isBlank(newPassword) ? randomPassword()
                 : requireStrongPassword(newPassword);
         user.setPasswordHash(passwordHasher.hash(password));
+        // 管理员重置后用户必须改密；同时递增令牌版本，让旧会话立即失效（BR-A06）
+        user.setMustChangePassword(1);
+        user.setTokenVersion(versionOf(user) + 1);
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
         userMapper.updateById(user);
         audit(AuditLogService.ACTION_RESET, user.getId(), "重置密码：" + user.getUsername());
 
@@ -212,6 +220,8 @@ public class AccountServiceImpl implements AccountService {
             throw new BusinessException(ResultCode.STATE_CONFLICT, "不能修改当前登录账号的角色");
         }
         user.setRole(target.name());
+        // 角色变更下一次请求生效：递增令牌版本，旧令牌失效后重新登录即拿到新角色（BR-A06）
+        user.setTokenVersion(versionOf(user) + 1);
         userMapper.updateById(user);
         audit(AuditLogService.ACTION_ROLE_ASSIGN, user.getId(),
                 "角色调整为：" + target.getLabel() + "（" + user.getUsername() + "）");
@@ -252,6 +262,8 @@ public class AccountServiceImpl implements AccountService {
             user.setPasswordHash(passwordHasher.hash(initialPassword));
             user.setStatus(ENABLED);
             user.setTempGrant(0);
+            // 批量开通的学生同样首次登录强制改密（AC-004）
+            user.setMustChangePassword(1);
             userMapper.insert(user);
             created++;
 
@@ -387,28 +399,12 @@ public class AccountServiceImpl implements AccountService {
 
     /** 显式密码必须 8-20 位且至少包含大写、小写、数字、符号中的三类（BR-A02）。 */
     private String requireStrongPassword(String password) {
-        String value = password == null ? "" : password;
-        if (value.length() < 8 || value.length() > 20) {
-            throw new BusinessException(ResultCode.PARAM_INVALID, "密码长度应为 8-20 位");
-        }
-        int kinds = 0;
-        if (value.chars().anyMatch(Character::isUpperCase)) {
-            kinds++;
-        }
-        if (value.chars().anyMatch(Character::isLowerCase)) {
-            kinds++;
-        }
-        if (value.chars().anyMatch(Character::isDigit)) {
-            kinds++;
-        }
-        if (value.chars().anyMatch(ch -> !Character.isLetterOrDigit(ch))) {
-            kinds++;
-        }
-        if (kinds < 3) {
-            throw new BusinessException(ResultCode.PARAM_INVALID,
-                    "密码须包含大写字母、小写字母、数字、符号中的至少三类");
-        }
-        return value;
+        return PasswordPolicy.validate(password);
+    }
+
+    /** 当前令牌版本号，为空按 0 处理（历史数据没有该列时同样成立）。 */
+    private int versionOf(SysUser user) {
+        return user.getTokenVersion() == null ? 0 : user.getTokenVersion();
     }
 
     /** 生成满足 8-20 位与三类字符要求的随机密码。 */

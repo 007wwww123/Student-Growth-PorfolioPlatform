@@ -30,4 +30,12 @@ public class UserVO {
 
     /** 管理员是否持临时只读授权。 */
     private boolean tempGrant;
+
+    /**
+     * 是否必须先改密（BR-A04）。
+     *
+     * <p>前端据此把用户锁在改密页；服务端由 {@code JwtAuthFilter} 二次拦截，
+     * 不能只靠前端跳转。</p>
+     */
+    private boolean mustChangePassword;
 }

@@ -17,6 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -30,11 +31,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 登录鉴权过滤器。
  *
  * <p>取代原来的「信任 X-User-Id / X-User-Role 请求头」实现：身份只来自
- * {@code Authorization: Bearer <JWT>}，签名、过期、吊销三关都过才写入 {@link UserContext}，
- * 否则直接返回 401，不进入 Controller。请求头方式自此关闭，任何调用方都不能再自封角色。</p>
+ * {@code Authorization: Bearer <JWT>}，签名、过期、吊销、令牌版本四关都过才写入
+ * {@link UserContext}，否则直接返回 401，不进入 Controller。</p>
  *
- * <p>401 的两种原因必须区分：令牌过期返回 {@code EC-40102}，其余（缺失、伪造、已登出）
- * 返回 {@code EC-40101}；前端据此决定是重新登录还是静默处理。</p>
+ * <p>401 的两种原因必须区分：令牌过期返回 {@code EC-40102}，其余（缺失、伪造、已登出、
+ * 版本失效）返回 {@code EC-40101}；前端据此决定是重新登录还是静默处理。</p>
+ *
+ * <p><b>为什么每个请求都要读一次 sys_user：</b>BR-A06 要求权限变更「在下一次请求生效，
+ * 不要求重新登录」。只信任令牌里的角色与授权位做不到这一点，所以令牌只负责证明「你是谁」，
+ * 角色、停用、令牌版本、临时授权都以数据库当前值为准。代价是一次主键查询，
+ * 换来的是停用/改密/改角色立即生效，这笔账在 200 并发下仍然划算。</p>
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -50,6 +56,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/actuator",
             "/error",
     };
+
+    /**
+     * 首次登录未改密时仍可访问的路径（BR-A04）。
+     *
+     * <p>必须放行改密、会话信息与登出：否则用户进不去改密页，也退不出来。
+     * 其余业务接口一律 {@code EC-40305}。</p>
+     */
+    private static final Set<String> PASSWORD_CHANGE_ALLOWED = Set.of(
+            "/auth/password", "/auth/me", "/auth/logout");
 
     private final JwtService jwtService;
 
@@ -87,17 +102,37 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = bearerOf(request.getHeader(HttpHeaders.AUTHORIZATION));
         if (token == null) {
-            writeUnauthorized(response, ResultCode.UNAUTHORIZED, "未登录或缺少令牌");
+            writeError(response, ResultCode.UNAUTHORIZED, "未登录或缺少令牌");
             return;
         }
 
         try {
             JwtService.Claims claims = jwtService.parse(token);
             if (blacklistService.isRevoked(claims.jti())) {
-                writeUnauthorized(response, ResultCode.UNAUTHORIZED, "登录已失效，请重新登录");
+                writeError(response, ResultCode.UNAUTHORIZED, "登录已失效，请重新登录");
                 return;
             }
-            UserContext.set(new CurrentUser(claims.userId(), claims.role(), effectiveTempGrant(claims)));
+
+            SysUser user = userMapper.selectById(claims.userId());
+            if (user == null || user.getStatus() == null || user.getStatus() != 1) {
+                // BR-A07：停用账号的令牌立即失效，不等自然过期
+                writeError(response, ResultCode.UNAUTHORIZED, "账号已停用，请重新登录");
+                return;
+            }
+            if (versionOf(user) != claims.tokenVersion()) {
+                // BR-A06：改密、重置密码、调整角色后版本号递增，旧令牌下一次请求即失效
+                log.debug("令牌版本已失效 userId={} tokenVer={} dbVer={}",
+                        user.getId(), claims.tokenVersion(), versionOf(user));
+                writeError(response, ResultCode.UNAUTHORIZED, "账号权限已变更，请重新登录");
+                return;
+            }
+            if (mustChange(user) && !PASSWORD_CHANGE_ALLOWED.contains(pathOf(request))) {
+                writeError(response, ResultCode.PASSWORD_CHANGE_REQUIRED, "请先修改初始密码");
+                return;
+            }
+
+            UserContext.set(new CurrentUser(user.getId(), UserRoleEnum.fromCode(user.getRole()),
+                    effectiveTempGrant(user)));
             try {
                 filterChain.doFilter(request, response);
             } finally {
@@ -106,7 +141,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } catch (JwtService.JwtException ex) {
             ResultCode code = ex.isExpired() ? ResultCode.TOKEN_EXPIRED : ResultCode.UNAUTHORIZED;
             log.debug("鉴权失败 path={} reason={}", pathOf(request), ex.getMessage());
-            writeUnauthorized(response, code, ex.getMessage());
+            writeError(response, code, ex.getMessage());
         }
     }
 
@@ -114,21 +149,31 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      * 临时授权以数据库为准：审批通过后旧令牌立即生效，到期/撤销后立即失效。
      * 非管理员一律 false，避免令牌里的旧 claim 越权。
      */
-    private boolean effectiveTempGrant(JwtService.Claims claims) {
-        if (claims.role() != UserRoleEnum.ADMIN) {
+    private boolean effectiveTempGrant(SysUser user) {
+        if (!UserRoleEnum.ADMIN.name().equalsIgnoreCase(user.getRole())) {
             return false;
         }
-        SysUser user = userMapper.selectById(claims.userId());
-        if (user == null || user.getStatus() == null || user.getStatus() != 1
-                || user.getTempGrant() == null || user.getTempGrant() != 1) {
+        if (user.getTempGrant() == null || user.getTempGrant() != 1) {
+            return false;
+        }
+        if (user.getStatus() == null || user.getStatus() != 1) {
             return false;
         }
         LocalDateTime expireAt = user.getTempGrantExpireAt();
         return expireAt == null || expireAt.isAfter(LocalDateTime.now());
     }
 
+    private int versionOf(SysUser user) {
+        return user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+    }
+
+    private boolean mustChange(SysUser user) {
+        return user.getMustChangePassword() != null && user.getMustChangePassword() == 1;
+    }
+
     /** 去掉 context-path（/api），只留业务路径。 */
-    private String pathOf(HttpServletRequest request) {        String uri = request.getRequestURI();
+    private String pathOf(HttpServletRequest request) {
+        String uri = request.getRequestURI();
         String context = request.getContextPath();
         if (context != null && !context.isEmpty() && uri.startsWith(context)) {
             return uri.substring(context.length());
@@ -148,7 +193,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         return token.isEmpty() ? null : token;
     }
 
-    private void writeUnauthorized(HttpServletResponse response, ResultCode code, String message)
+    private void writeError(HttpServletResponse response, ResultCode code, String message)
             throws IOException {
         response.setStatus(code.getHttpStatus());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());

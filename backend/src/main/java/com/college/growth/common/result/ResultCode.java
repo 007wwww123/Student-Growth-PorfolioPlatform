@@ -25,6 +25,8 @@ public enum ResultCode {
     DATA_SCOPE_DENIED("EC-40302", 403, "无权访问该学生档案"),
     PERMISSION_DENIED("EC-40303", 403, "当前角色无权执行该操作"),
     SENSITIVE_EXPORT_DENIED("EC-40304", 403, "敏感列导出需审批通过且在有效期内"),
+    /** 首次登录未改密（BR-A04）：除改密、/auth/me、登出外一律拒绝。 */
+    PASSWORD_CHANGE_REQUIRED("EC-40305", 403, "请先修改初始密码"),
 
     STATE_CONFLICT("EC-40902", 409, "当前状态不允许该操作"),
     WITHDRAW_EXCEEDED("EC-40903", 409, "撤回次数已用完"),
@@ -35,6 +37,10 @@ public enum ResultCode {
     FIELD_VALIDATION_FAILED("EC-42201", 422, "字段校验未通过"),
     REQUIRED_FIELD_MISSING("EC-42202", 422, "必填内容未填写"),
     RETURN_REASON_TOO_SHORT("EC-42203", 422, "退回理由不少于 10 字"),
+    /** 密码强度不足（BR-A02）：长度 8–20 且至少包含三类字符。 */
+    PASSWORD_WEAK("EC-42204", 422, "密码需包含大写字母、小写字母、数字、符号中的至少三类"),
+    /** 改密时原密码不正确（F-01）。用 422 而非 401，避免前端把它当作会话过期清登录态。 */
+    PASSWORD_INCORRECT("EC-42206", 422, "原密码不正确"),
     IMPORT_TEMPLATE_INVALID("EC-42210", 422, "导入模板或文件格式不正确"),
 
     NOT_IMPLEMENTED("EC-50000", 501, "该功能尚未实现"),

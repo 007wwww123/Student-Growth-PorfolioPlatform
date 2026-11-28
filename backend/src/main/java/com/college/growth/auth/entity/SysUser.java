@@ -44,6 +44,26 @@ public class SysUser {
     /** 1 启用 / 0 停用。 */
     private Integer status;
 
+    /** 1 表示首次登录必须改密（BR-A04）：新建账号、管理员重置密码后置 1，改密成功置 0。 */
+    private Integer mustChangePassword;
+
+    /** 连续密码错误次数（BR-A03）：登录成功清零，达到 5 次写 {@code lockedUntil}。 */
+    private Integer failedLoginCount;
+
+    /** 锁定到期时间；为空或已过表示未锁定，锁定期间密码正确同样拒绝。 */
+    private LocalDateTime lockedUntil;
+
+    /**
+     * 令牌版本号（BR-A06）。
+     *
+     * <p>签发令牌时写入 JWT 的 {@code ver}，每次请求与库中值比对；改密、重置密码、
+     * 调整角色时递增，旧令牌在下一次请求即失效，不依赖自然过期。</p>
+     */
+    private Integer tokenVersion;
+
+    /** 最近一次改密时间，仅供审计与排查，不参与鉴权判定。 */
+    private LocalDateTime passwordChangedAt;
+
     private LocalDateTime lastLoginAt;
 
     private LocalDateTime createdAt;

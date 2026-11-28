@@ -70,6 +70,12 @@ async function onLogout(): Promise<void> {
   }
 }
 
+/** 修改本人密码：与首次登录强制改密共用同一个页面（F-01）。 */
+function goChangePassword(): void {
+  collapse()
+  void router.push({ name: 'change-password' })
+}
+
 /** 页面切换后菜单不该继续悬着。 */
 watch(() => route.fullPath, collapse)
 
@@ -116,7 +122,28 @@ onBeforeUnmount(clearCloseTimer)
 
         <transition name="account-menu">
           <div v-if="expanded" class="account__menu" role="menu" @keydown.esc="collapse">
-            <button type="button" class="account__item" role="menuitem" @click="onLogout">
+            <button type="button" class="account__item" role="menuitem" @click="goChangePassword">
+              <svg
+                class="account__item-icon"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12.5 3.5 16.5 7.5 7 17H3v-4z" />
+                <path d="M11 5l4 4" />
+              </svg>
+              修改密码
+            </button>
+            <button
+              type="button"
+              class="account__item account__item--danger"
+              role="menuitem"
+              @click="onLogout"
+            >
               <svg
                 class="account__item-icon"
                 viewBox="0 0 20 20"
@@ -285,6 +312,10 @@ onBeforeUnmount(clearCloseTimer)
 }
 
 .account__item:hover {
+  background: #f8fafc;
+}
+
+.account__item--danger:hover {
   background: var(--color-danger-bg);
   color: var(--color-danger);
 }

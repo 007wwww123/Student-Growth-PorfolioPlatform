@@ -320,7 +320,8 @@ public class OrgServiceImpl implements OrgService {
                 .filter(item -> !user.isCounselor() || item.getId().equals(user.userId()))
                 .map(item -> new UserVO(item.getId(), item.getUsername(), item.getDisplayName(),
                         item.getRole(), UserRoleEnum.COU.getLabel(), item.getStudentId(),
-                        item.getTempGrant() != null && item.getTempGrant() == 1))
+                        item.getTempGrant() != null && item.getTempGrant() == 1,
+                        item.getMustChangePassword() != null && item.getMustChangePassword() == 1))
                 .collect(Collectors.toList());
         vo.setCounselors(counselorVOs);
         return vo;

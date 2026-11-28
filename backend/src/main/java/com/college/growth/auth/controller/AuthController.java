@@ -1,6 +1,7 @@
 package com.college.growth.auth.controller;
 
 import com.college.growth.audit.service.LoginLogService;
+import com.college.growth.auth.dto.ChangePasswordDTO;
 import com.college.growth.auth.dto.LoginDTO;
 import com.college.growth.auth.service.AuthService;
 import com.college.growth.auth.vo.LoginVO;
@@ -58,6 +59,17 @@ public class AuthController {
     @GetMapping("/me")
     public Result<UserVO> me() {
         return Result.success(authService.me());
+    }
+
+    /**
+     * 修改本人密码（F-01 / 7.2 {@code auth:password:self}）。
+     *
+     * <p>返回结构与登录一致：后端递增令牌版本后旧令牌失效，必须同时把新令牌交给前端，
+     * 否则用户改完密码就被踢回登录页。</p>
+     */
+    @PostMapping("/password")
+    public Result<LoginVO> changePassword(@Valid @RequestBody ChangePasswordDTO dto) {
+        return Result.success(authService.changePassword(dto.getOldPassword(), dto.getNewPassword()));
     }
 
     /** 登出：令牌进入吊销名单，客户端同时清除本地状态。 */

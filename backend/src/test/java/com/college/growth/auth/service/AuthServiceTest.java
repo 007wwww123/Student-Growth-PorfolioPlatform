@@ -18,10 +18,12 @@ import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
 import com.college.growth.common.enums.UserRoleEnum;
 import com.college.growth.common.exception.BusinessException;
+import com.college.growth.common.log.service.AuditLogService;
 import com.college.growth.common.result.ResultCode;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,6 +48,9 @@ class AuthServiceTest {
 
     @Mock
     private TokenBlacklistService blacklistService;
+
+    @Mock
+    private AuditLogService auditLogService;
 
     @InjectMocks
     private AuthService authService;
@@ -77,6 +82,9 @@ class AuthServiceTest {
         user.setTempGrant(0);
         user.setStatus(1);
         user.setPasswordHash("pbkdf2$120000$x$y");
+        user.setTokenVersion(0);
+        user.setMustChangePassword(0);
+        user.setFailedLoginCount(0);
         return user;
     }
 
@@ -164,10 +172,134 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("连续第 5 次密码错误锁定账号，返回 EC-40103")
+    void fifthFailureLocksAccount() {
+        SysUser user = student();
+        user.setFailedLoginCount(4);
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(passwordHasher.matches(anyString(), anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(loginDTO()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getResultCode())
+                        .isEqualTo(ResultCode.ACCOUNT_LOCKED));
+        verify(jwtService, never()).issue(any());
+    }
+
+    @Test
+    @DisplayName("锁定期间密码正确同样拒绝，并提示解锁时间（AC-002）")
+    void lockedAccountRejectsCorrectPassword() {
+        SysUser user = student();
+        user.setFailedLoginCount(5);
+        user.setLockedUntil(LocalDateTime.now().plusMinutes(20));
+        when(userMapper.selectOne(any())).thenReturn(user);
+
+        assertThatThrownBy(() -> authService.login(loginDTO()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    assertThat(((BusinessException) ex).getResultCode())
+                            .isEqualTo(ResultCode.ACCOUNT_LOCKED);
+                    assertThat(ex.getMessage()).contains("后重试");
+                });
+        // 锁定判定在密码校验之前，连哈希都不必算
+        verify(passwordHasher, never()).matches(anyString(), anyString());
+        verify(jwtService, never()).issue(any());
+    }
+
+    @Test
+    @DisplayName("锁定期已过：清零后允许用正确密码登录")
+    void expiredLockAllowsLogin() {
+        SysUser user = student();
+        user.setFailedLoginCount(5);
+        user.setLockedUntil(LocalDateTime.now().minusMinutes(1));
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(passwordHasher.matches(anyString(), anyString())).thenReturn(true);
+        when(jwtService.issue(any())).thenReturn("token-value");
+        when(jwtService.getTtlSeconds()).thenReturn(28800L);
+
+        LoginVO vo = authService.login(loginDTO());
+
+        assertThat(vo.getToken()).isEqualTo("token-value");
+        verify(jwtService).issue(any());
+    }
+
+    @Test
+    @DisplayName("首次登录未改密：登录成功但标记 mustChangePassword")
+    void loginMarksForcedPasswordChange() {
+        SysUser user = student();
+        user.setMustChangePassword(1);
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(passwordHasher.matches(anyString(), anyString())).thenReturn(true);
+        when(jwtService.issue(any())).thenReturn("token-value");
+        when(jwtService.getTtlSeconds()).thenReturn(28800L);
+
+        LoginVO vo = authService.login(loginDTO());
+
+        assertThat(vo.isMustChangePassword()).isTrue();
+        assertThat(vo.getUser().isMustChangePassword()).isTrue();
+    }
+
+    @Test
+    @DisplayName("改密：原密码不正确返回 EC-42206，令牌不变")
+    void changePasswordRejectsWrongOldPassword() {
+        UserContext.set(new CurrentUser(1001L, UserRoleEnum.STU, false));
+        when(userMapper.selectById(1001L)).thenReturn(student());
+        when(passwordHasher.matches("WrongPass1!", "pbkdf2$120000$x$y")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword("WrongPass1!", "NewPass1!"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getResultCode())
+                        .isEqualTo(ResultCode.PASSWORD_INCORRECT));
+        verify(jwtService, never()).issue(any());
+    }
+
+    @Test
+    @DisplayName("改密：新密码强度不足返回 EC-42204，并列出未满足项")
+    void changePasswordRejectsWeakPassword() {
+        UserContext.set(new CurrentUser(1001L, UserRoleEnum.STU, false));
+        when(userMapper.selectById(1001L)).thenReturn(student());
+        when(passwordHasher.matches("Passw0rd!", "pbkdf2$120000$x$y")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.changePassword("Passw0rd!", "abc12345"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    assertThat(((BusinessException) ex).getResultCode())
+                            .isEqualTo(ResultCode.PASSWORD_WEAK);
+                    assertThat(ex.getMessage()).contains("当前满足 2 类");
+                });
+    }
+
+    @Test
+    @DisplayName("改密成功：版本号加一、清除强制改密位，并签发新令牌")
+    void changePasswordSucceeds() {
+        UserContext.set(new CurrentUser(1001L, UserRoleEnum.STU, false));
+        SysUser user = student();
+        user.setMustChangePassword(1);
+        user.setTokenVersion(3);
+        when(userMapper.selectById(1001L)).thenReturn(user);
+        when(passwordHasher.matches("Passw0rd!", "pbkdf2$120000$x$y")).thenReturn(true);
+        when(passwordHasher.matches("NewPass1!", "pbkdf2$120000$x$y")).thenReturn(false);
+        when(passwordHasher.hash("NewPass1!")).thenReturn("HASHED-NEW");
+        when(jwtService.issue(any())).thenReturn("new-token");
+        when(jwtService.getTtlSeconds()).thenReturn(28800L);
+
+        LoginVO vo = authService.changePassword("Passw0rd!", "NewPass1!");
+
+        assertThat(vo.getToken()).isEqualTo("new-token");
+        assertThat(vo.isMustChangePassword()).isFalse();
+        assertThat(user.getPasswordHash()).isEqualTo("HASHED-NEW");
+        assertThat(user.getTokenVersion()).isEqualTo(4);
+        assertThat(user.getMustChangePassword()).isZero();
+        verify(userMapper).update(any(), any());
+        verify(auditLogService).record(AuditLogService.BIZ_ACCOUNT, AuditLogService.TARGET_USER,
+                1001L, null, null, null, AuditLogService.ACTION_UPDATE, "修改本人密码");
+    }
+
+    @Test
     @DisplayName("登出把 jti 写入吊销名单")
     void logoutRevokesToken() {
-        JwtService.Claims claims = new JwtService.Claims(1001L, UserRoleEnum.STU, false, "李明",
-                "jti-1", Instant.now(), Instant.now().plusSeconds(3600));
+        JwtService.Claims claims = new JwtService.Claims(1001L, UserRoleEnum.STU, false, 0, false,
+                "李明", "jti-1", Instant.now(), Instant.now().plusSeconds(3600));
         when(jwtService.parse("token-value")).thenReturn(claims);
         when(jwtService.remainingSeconds(claims)).thenReturn(3600L);
 
