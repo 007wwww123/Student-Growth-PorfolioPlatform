@@ -10,19 +10,20 @@ import org.slf4j.LoggerFactory;
 /**
  * 枚举选项（对应 {@code arc_field_def.options_json}）。
  *
- * <p>支持两种写法：{@code ["A","B"]} 与 {@code [{"value":"A","label":"甲"}]}。
- * 落库存 {@code value}，界面展示 {@code label}；历史值停用后仍按原 label 展示（BR-F04）。</p>
- *
- * @param value 存库值
- * @param label 展示文案
+ * <p>支持两种写法：{@code ["A","B"]} 与 {@code [{"value":"A","label":"甲"}]}；
+ * 字典停用项写成 {@code {"value":"摄影","label":"摄影","disabled":true}}，
+ * 新填报校验拒绝、历史值仍按 label 展示。</p>
  */
-public record FieldOption(String value, String label) {
+public record FieldOption(String value, String label, boolean disabled) {
 
     private static final Logger log = LoggerFactory.getLogger(FieldOption.class);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** 解析选项配置；为空或格式错误返回空列表（ENUM 校验器会据此判定为配置缺失）。 */
+    public FieldOption(String value, String label) {
+        this(value, label, false);
+    }
+
     public static List<FieldOption> parse(String optionsJson) {
         List<FieldOption> options = new ArrayList<>();
         if (optionsJson == null || optionsJson.isBlank()) {
@@ -38,7 +39,9 @@ public record FieldOption(String value, String label) {
                     options.add(new FieldOption(item.asText(), item.asText()));
                 } else if (item.hasNonNull("value")) {
                     String label = item.hasNonNull("label") ? item.get("label").asText() : item.get("value").asText();
-                    options.add(new FieldOption(item.get("value").asText(), label));
+                    boolean disabled = item.path("disabled").asBoolean(false)
+                            || (item.has("status") && item.get("status").asInt(1) == 0);
+                    options.add(new FieldOption(item.get("value").asText(), label, disabled));
                 }
             }
         } catch (Exception ex) {
@@ -47,8 +50,8 @@ public record FieldOption(String value, String label) {
         return options;
     }
 
-    /** 取全部存库值，供校验器做命中判断。 */
+    /** 可取值的 value 列表；停用项不参与新值校验。 */
     public static List<String> valuesOf(List<FieldOption> options) {
-        return options.stream().map(FieldOption::value).toList();
+        return options.stream().filter(option -> !option.disabled()).map(FieldOption::value).toList();
     }
 }

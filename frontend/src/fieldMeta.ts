@@ -18,7 +18,7 @@ export interface RenderField {
   editable: boolean
   required: boolean
   maxLength?: number
-  options?: Array<{ value: string; label: string }>
+  options?: Array<{ value: string; label: string; disabled?: boolean }>
   /** 只读原因，展示在控件下方 */
   lockHint?: string
   /** 后端本次返回值是否已脱敏 */

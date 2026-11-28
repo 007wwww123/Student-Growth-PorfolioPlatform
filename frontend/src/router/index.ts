@@ -129,6 +129,12 @@ const router = createRouter({
       meta: { title: '临时授权', roles: ['ADMIN'] },
     },
     {
+      path: '/admin/dicts',
+      name: 'admin-dicts',
+      component: () => import('@/views/admin/DictView.vue'),
+      meta: { title: '数据字典', roles: ['ADMIN'] },
+    },
+    {
       path: '/admin/audit',
       name: 'admin-audit',
       component: () => import('@/views/admin/AuditView.vue'),

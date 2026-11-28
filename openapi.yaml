@@ -1653,6 +1653,104 @@ paths:
               schema:
                 $ref: '#/components/schemas/ObjectResponse'
 
+  /dict/{code}:
+    get:
+      tags: [系统管理]
+      operationId: getDict
+      summary: 字典及字典项（含停用项）
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 字典
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/dicts:
+    get:
+      tags: [系统管理]
+      operationId: listDicts
+      summary: 字典管理列表
+      responses:
+        '200':
+          description: 字典列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/dicts/{code}/items:
+    post:
+      tags: [系统管理]
+      operationId: addDictItem
+      summary: 新增字典项
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value, label]
+              properties:
+                value: { type: string, maxLength: 128 }
+                label: { type: string, maxLength: 128 }
+                sortNo: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: 字典
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/dicts/{code}/items/{itemId}:
+    put:
+      tags: [系统管理]
+      operationId: updateDictItem
+      summary: 修改字典项标签与排序
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: itemId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value, label]
+              properties:
+                value: { type: string }
+                label: { type: string }
+                sortNo: { type: integer }
+      responses:
+        '200':
+          description: 字典
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/dicts/{code}/items/{itemId}/status:
+    put:
+      tags: [系统管理]
+      operationId: setDictItemStatus
+      summary: 启用/停用字典项（停用项保留历史）
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+        - { name: itemId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: status, in: query, required: true, schema: { type: integer, enum: [0, 1] } }
+      responses:
+        '200':
+          description: 字典
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /audit/logs:
     get:
       tags: [系统管理]

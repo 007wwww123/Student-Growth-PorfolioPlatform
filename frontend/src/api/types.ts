@@ -89,7 +89,7 @@ export interface FieldMeta {
   /** 来源：SIS / COU / STU / STU_CFM / SYS / IMP */
   source?: string
   /** 枚举选项，非枚举字段为空 */
-  options?: Array<{ value: string; label: string }>
+  options?: Array<{ value: string; label: string; disabled?: boolean }>
   /** 敏感级别：0 普通 / 1 脱敏 / 2 仅辅导员可查看完整值 */
   sensitive?: number
   /** 当前角色在当前状态下是否可写 */
