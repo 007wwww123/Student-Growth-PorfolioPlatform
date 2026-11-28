@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -37,12 +39,45 @@ public class ProfileCompletenessService {
 
     private final ArcProfileMapper profileMapper;
 
+    /**
+     * 子表型板块的完成度扩展点。Spring 在没有实现时注入空集合，
+     * 因此本类对 BASIC/ACADEMIC/INTEREST/LIFE/CAREER 的行为与扩展点引入前完全一致。
+     */
+    private final List<SectionCompletenessProvider> providers;
+
+    /**
+     * 保留三参构造签名：审核、板块、完成度的既有单测都显式 {@code new} 本类，
+     * 加一个重载比改四个测试文件更稳妥，也避免把「扩展点」变成使用方的必填参数。
+     */
     public ProfileCompletenessService(FieldDefService fieldDefService,
                                       ProfileItemService itemService,
                                       ArcProfileMapper profileMapper) {
+        this(fieldDefService, itemService, profileMapper, List.of());
+    }
+
+    /**
+     * Spring 注入用的构造器。没有注册任何扩展实现时 Spring 注入空集合，
+     * 因此本类对 BASIC/ACADEMIC/INTEREST/LIFE/CAREER 的行为与扩展点引入前完全一致。
+     */
+    @Autowired
+    public ProfileCompletenessService(FieldDefService fieldDefService,
+                                      ProfileItemService itemService,
+                                      ArcProfileMapper profileMapper,
+                                      List<SectionCompletenessProvider> providers) {
         this.fieldDefService = fieldDefService;
         this.itemService = itemService;
         this.profileMapper = profileMapper;
+        this.providers = providers == null ? List.of() : providers;
+    }
+
+    /** 找到该板块的扩展实现；未注册时返回 empty，走默认口径。 */
+    private Optional<SectionCompletenessProvider> providerFor(ArcProfile profile) {
+        if (profile == null || profile.getSectionCode() == null) {
+            return Optional.empty();
+        }
+        return providers.stream()
+                .filter(provider -> provider.sectionCode().equalsIgnoreCase(profile.getSectionCode()))
+                .findFirst();
     }
 
     /**
@@ -54,11 +89,21 @@ public class ProfileCompletenessService {
         if (profile == null || profile.getId() == null) {
             return BigDecimal.ZERO;
         }
+        // MENTOR 一类子表板块的字段值不在 arc_profile_item，交给板块自己的实现计算。
+        var provider = providerFor(profile);
+        if (provider.isPresent()) {
+            return provider.get().compute(profile);
+        }
         return compute(profile.getSectionCode(), itemService.loadByProfile(profile.getId()));
     }
 
     /** 审核只接受正式值；候选值可用于提交，但必须在通过前处理。 */
     public void requireReviewReady(ArcProfile profile) {
+        var provider = providerFor(profile);
+        if (provider.isPresent()) {
+            provider.get().requireReviewReady(profile);
+            return;
+        }
         var items = itemService.loadByProfile(profile.getId());
         for (var def : fieldDefService.listActive(profile.getSectionCode())) {
             var item = items.get(def.getFieldCode());
@@ -106,7 +151,9 @@ public class ProfileCompletenessService {
      * 也会读到与内存不一致的快照（同事务内虽然可见，但没必要冒这个险）。</p>
      */
     public BigDecimal refresh(ArcProfile profile, Map<String, ArcProfileItem> items) {
-        BigDecimal percent = compute(profile.getSectionCode(), items);
+        BigDecimal percent = providerFor(profile)
+                .map(provider -> provider.compute(profile))
+                .orElseGet(() -> compute(profile.getSectionCode(), items));
         profile.setCompleteness(percent);
         int rows = profileMapper.updateById(profile);
         if (rows == 0) {
