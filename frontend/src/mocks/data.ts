@@ -324,12 +324,13 @@ const SIMPLE_FIELDS: Record<string, MockFieldDef[]> = {
       required: true,
       source: 'STU',
       editableRoles: ['STU'],
+      // 枚举存英文码、展示中文标签（需求 5.4）：原 mock 把「考研」当值，真实后端按 ENUM 校验会直接拒绝
       options: [
-        { value: '就业', label: '就业' },
-        { value: '考研', label: '考研' },
-        { value: '留学', label: '留学' },
-        { value: '创业', label: '创业' },
-        { value: '未定', label: '未定' },
+        { value: 'EMPLOY', label: '就业' },
+        { value: 'POSTGRAD', label: '考研' },
+        { value: 'OVERSEAS', label: '留学' },
+        { value: 'STARTUP', label: '创业' },
+        { value: 'UNDECIDED', label: '未定' },
       ],
     },
     { key: 'industry', name: '心仪行业', type: 'TEXT', required: false, source: 'STU', editableRoles: ['STU'] },

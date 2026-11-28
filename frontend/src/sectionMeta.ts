@@ -81,7 +81,7 @@ export const SECTIONS: SectionMeta[] = [
   {
     code: 'career',
     name: '职业规划',
-    summary: '就业意向、目标行业岗位与实施计划',
+    summary: '就业意向、目标行业岗位与实施计划（学生自述，未经核实；毕业去向以就业系统为准）',
     fields: [
       { key: 'intention', label: '就业意向', type: 'text' },
       { key: 'industry', label: '目标行业', type: 'text' },
