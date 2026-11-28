@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ImportResult } from './import'
 
 /** 学业成果（成绩/证书/竞赛）接口与类型。 */
 
@@ -107,4 +108,24 @@ export function verifyEvent(
     method: 'PUT',
     data: { status, remark },
   })
+}
+
+
+function uploadImport<T>(url: string, file: File): Promise<T> {
+  const form = new FormData()
+  form.append('file', file)
+  return request<T>({
+    url,
+    method: 'POST',
+    data: form,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export function importRanks(file: File): Promise<ImportResult> {
+  return uploadImport<ImportResult>('/academic/records/import/ranks/execute', file)
+}
+
+export function importCertificates(file: File): Promise<ImportResult> {
+  return uploadImport<ImportResult>('/academic/records/import/certificates/execute', file)
 }

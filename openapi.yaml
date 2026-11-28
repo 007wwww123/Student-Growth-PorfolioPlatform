@@ -1322,6 +1322,355 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /academic/records/{studentId}:
+    get:
+      tags: [学业发展]
+      operationId: getAcademicRecords
+      summary: 学业成果（成绩/证书/竞赛）
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: academicYear, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: 学业成果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/{studentId}/certificates:
+    post:
+      tags: [学业发展]
+      operationId: createCertificate
+      summary: 学生新增证书（PENDING）
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [certType, certName, obtainDate]
+              properties:
+                certType: { type: string }
+                certName: { type: string }
+                score: { type: string }
+                obtainDate: { type: string, format: date }
+                evidenceFileId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/{studentId}/certificates/{id}:
+    put:
+      tags: [学业发展]
+      operationId: updateCertificate
+      summary: 修改待认定证书
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                certType: { type: string }
+                certName: { type: string }
+                score: { type: string }
+                obtainDate: { type: string, format: date }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    delete:
+      tags: [学业发展]
+      operationId: deleteCertificate
+      summary: 删除待认定证书
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /academic/records/{studentId}/certificates/{id}/verify:
+    put:
+      tags: [学业发展]
+      operationId: verifyCertificate
+      summary: COU 认定证书（PASSED/REJECTED，退回必填意见）
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [PASSED, REJECTED] }
+                remark: { type: string }
+      responses:
+        '200':
+          description: 认定结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/{studentId}/events:
+    post:
+      tags: [学业发展]
+      operationId: createAcademicEvent
+      summary: 学生新增竞赛/科研（PENDING）
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventType, title, level, startDate]
+              properties:
+                eventType: { type: string, enum: [COMPETITION, PROJECT, RESEARCH] }
+                title: { type: string }
+                roleName: { type: string }
+                level: { type: string, enum: [SCHOOL, PROVINCE, NATIONAL, INTERNATIONAL] }
+                startDate: { type: string, format: date }
+                endDate: { type: string, format: date }
+                description: { type: string }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/{studentId}/events/{id}:
+    put:
+      tags: [学业发展]
+      operationId: updateAcademicEvent
+      summary: 修改待认定竞赛/科研
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventType: { type: string }
+                title: { type: string }
+                level: { type: string }
+                startDate: { type: string, format: date }
+                endDate: { type: string, format: date }
+                description: { type: string }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    delete:
+      tags: [学业发展]
+      operationId: deleteAcademicEvent
+      summary: 删除待认定竞赛/科研
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /academic/records/{studentId}/events/{id}/verify:
+    put:
+      tags: [学业发展]
+      operationId: verifyAcademicEvent
+      summary: COU 认定竞赛/科研
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [PASSED, REJECTED] }
+                remark: { type: string }
+      responses:
+        '200':
+          description: 认定结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/ranks/template:
+    get:
+      tags: [学业发展]
+      operationId: downloadRankTemplate
+      summary: 下载成绩导入模板
+      responses:
+        '200':
+          description: xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+
+  /academic/records/import/ranks/preview:
+    post:
+      tags: [学业发展]
+      operationId: previewRankImport
+      summary: 成绩导入预览
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: 预览结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/ranks/execute:
+    post:
+      tags: [学业发展]
+      operationId: executeRankImport
+      summary: 执行成绩导入（学生+学期覆盖）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/certificates/template:
+    get:
+      tags: [学业发展]
+      operationId: downloadCertificateTemplate
+      summary: 下载证书导入模板
+      responses:
+        '200':
+          description: xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+
+  /academic/records/import/certificates/preview:
+    post:
+      tags: [学业发展]
+      operationId: previewCertificateImport
+      summary: 证书导入预览
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: 预览结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/certificates/execute:
+    post:
+      tags: [学业发展]
+      operationId: executeCertificateImport
+      summary: 执行证书导入（PENDING）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/tasks:
+    get:
+      tags: [学业发展]
+      operationId: listAcademicImportTasks
+      summary: 成绩/证书导入任务
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /academic/records/import/tasks/{id}/receipt:
+    get:
+      tags: [学业发展]
+      operationId: downloadAcademicImportReceipt
+      summary: 下载成绩/证书导入回执
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: xlsx 回执
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+
   /admin/import/students/template:
     get:
       tags: [系统管理]

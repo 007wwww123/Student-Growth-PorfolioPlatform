@@ -4,10 +4,13 @@ import {
   createCertificate,
   createEvent,
   fetchAcademicRecords,
+  importCertificates,
+  importRanks,
   verifyCertificate,
   verifyEvent,
   type AcademicRecords,
 } from '@/api/records'
+import { downloadExcel, type ImportResult } from '@/api/import'
 import { isApiError, type ApiError } from '@/api/http'
 import { getUser } from '@/auth/session'
 import { DEMO_STUDENT_ID } from '@/sectionMeta'
@@ -31,6 +34,10 @@ const message = ref('')
 const showCertForm = ref(false)
 const showEventForm = ref(false)
 const verify = ref<{ type: 'cert' | 'event'; id: number; remark: string } | null>(null)
+const rankFile = ref<File | null>(null)
+const certFile = ref<File | null>(null)
+const importing = ref(false)
+const importResult = ref<ImportResult | null>(null)
 
 const certForm = reactive({ certType: '外语', certName: '', score: '', obtainDate: '' })
 const eventForm = reactive({
@@ -137,6 +144,48 @@ async function submitReject(): Promise<void> {
   }
 }
 
+function onRankFile(event: Event): void {
+  const input = event.target as HTMLInputElement
+  rankFile.value = input.files && input.files.length > 0 ? input.files[0] : null
+}
+
+function onCertFile(event: Event): void {
+  const input = event.target as HTMLInputElement
+  certFile.value = input.files && input.files.length > 0 ? input.files[0] : null
+}
+
+async function doImportRank(): Promise<void> {
+  if (!rankFile.value) return
+  importing.value = true
+  error.value = null
+  try {
+    importResult.value = await importRanks(rankFile.value)
+    flash(`成绩导入：成功 ${importResult.value.successRows} 行，失败 ${importResult.value.failedRows} 行`)
+    await load()
+    tab.value = 'ranks'
+  } catch (e) {
+    error.value = isApiError(e) ? e : null
+  } finally {
+    importing.value = false
+  }
+}
+
+async function doImportCert(): Promise<void> {
+  if (!certFile.value) return
+  importing.value = true
+  error.value = null
+  try {
+    importResult.value = await importCertificates(certFile.value)
+    flash(`证书导入：成功 ${importResult.value.successRows} 行，失败 ${importResult.value.failedRows} 行`)
+    await load()
+    tab.value = 'certificates'
+  } catch (e) {
+    error.value = isApiError(e) ? e : null
+  } finally {
+    importing.value = false
+  }
+}
+
 function statusText(status: string): string {
   return status === 'PASSED' ? '已通过' : status === 'REJECTED' ? '已退回' : '待认定'
 }
@@ -170,6 +219,34 @@ onMounted(load)
 
     <p v-if="error" class="banner banner--error">{{ error.message }}（{{ error.code }}）</p>
     <p v-if="message" class="banner banner--ok">{{ message }}</p>
+
+    <div v-if="isCounselor" class="import">
+      <h3>导入成绩 / 证书</h3>
+      <div class="import__row">
+        <button class="btn btn--small btn--ghost" @click="downloadExcel('/academic/records/import/ranks/template', 'academic-rank-template.xlsx')">
+          下载成绩模板
+        </button>
+        <input type="file" accept=".xlsx" @change="onRankFile" />
+        <button class="btn btn--small" :disabled="!rankFile || importing" @click="doImportRank">导入成绩</button>
+      </div>
+      <div class="import__row">
+        <button class="btn btn--small btn--ghost" @click="downloadExcel('/academic/records/import/certificates/template', 'academic-cert-template.xlsx')">
+          下载证书模板
+        </button>
+        <input type="file" accept=".xlsx" @change="onCertFile" />
+        <button class="btn btn--small" :disabled="!certFile || importing" @click="doImportCert">导入证书</button>
+      </div>
+      <p v-if="importResult" class="muted">
+        导入任务 #{{ importResult.taskId }}：成功 {{ importResult.successRows }} 行，失败
+        {{ importResult.failedRows }} 行。
+        <button
+          class="btn btn--small btn--ghost"
+          @click="downloadExcel(`/academic/records/import/tasks/${importResult.taskId}/receipt`, `academic-import-receipt-${importResult.taskId}.xlsx`)"
+        >
+          下载回执
+        </button>
+      </p>
+    </div>
 
     <nav class="tabs">
       <button class="tab" :class="{ 'tab--active': tab === 'ranks' }" @click="tab = 'ranks'">成绩轨迹</button>
@@ -297,6 +374,24 @@ onMounted(load)
   display: flex;
   gap: 8px;
   margin: 14px 0;
+}
+.import {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+}
+.import h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.import__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .tab {
   height: 30px;
