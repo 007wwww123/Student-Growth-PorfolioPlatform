@@ -5,6 +5,7 @@ import PendingHint from '@/components/PendingHint.vue'
 import { isApiError, type ApiError } from '@/api/http'
 import { getUser } from '@/auth/session'
 import { fetchSection, saveSection, submitSection, withdrawSection } from '@/api/sections'
+import { createExportTask, downloadExport } from '@/api/export'
 import type { SectionCode, SectionVO } from '@/api/types'
 import { formatValue, formFromFields, renderFieldsOf, type PendingItem } from '@/fieldMeta'
 import { DEMO_ACADEMIC_YEAR, DEMO_STUDENT_ID, SECTION_MAP, STATUS_LABELS } from '@/sectionMeta'
@@ -40,6 +41,7 @@ const withdrawing = ref(false)
 const confirmingWithdraw = ref(false)
 const error = ref<ApiError | null>(null)
 const notice = ref('')
+const exporting = ref(false)
 
 /** 学生看自己的档案；辅导员/管理员从这里进入时只能查看，学生 ID 由路由上下文决定。 */
 const user = getUser()
@@ -171,6 +173,23 @@ function buildPayload(): Record<string, unknown> | null {
   }
 }
 
+async function onExport(): Promise<void> {
+  if (exporting.value) {
+    return
+  }
+  exporting.value = true
+  error.value = null
+  try {
+    const task = await createExportTask(studentId.value, DEMO_ACADEMIC_YEAR)
+    await downloadExport(task.id)
+    notice.value = 'PDF 已生成并开始下载（链接 24 小时内有效）'
+  } catch (e) {
+    error.value = isApiError(e) ? e : null
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function onSave(): Promise<void> {
   error.value = null
   notice.value = ''
@@ -255,6 +274,15 @@ watch(() => props.code, load, { immediate: true })
       <div class="board__state">
         <span class="board__completeness">完整度 {{ completenessText }}</span>
         <span v-if="section" class="tag" :class="`tag--${section.status}`">{{ statusLabel }}</span>
+        <button
+          v-if="!isAdmin"
+          type="button"
+          class="btn btn--small"
+          :disabled="exporting"
+          @click="onExport"
+        >
+          {{ exporting ? '生成中…' : '导出 PDF' }}
+        </button>
       </div>
     </header>
 

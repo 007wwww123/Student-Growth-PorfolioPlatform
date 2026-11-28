@@ -1322,6 +1322,56 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /export/profiles/{studentId}:
+    post:
+      tags: [系统管理]
+      operationId: createProfileExport
+      summary: 创建单人档案 PDF 导出（`export:profile:pdf`）
+      description: 学生要求六板块全部 APPROVED/LOCKED，否则返回 EC-40905；COU 可直接导出。下载链接 24 小时有效。
+      parameters:
+        - { name: studentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: academicYear, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: 导出任务
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+        '409':
+          description: 板块未全部通过（EC-40905）
+
+  /export/tasks/{id}:
+    get:
+      tags: [系统管理]
+      operationId: getExportTask
+      summary: 导出任务状态（仅本人）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /export/tasks/{id}/download:
+    get:
+      tags: [系统管理]
+      operationId: downloadProfileExport
+      summary: 下载单人档案 PDF（24 小时内，过期 EC-41001）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: PDF 文件
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '410':
+          description: 下载链接已过期（EC-41001）
+
   /academic/records/{studentId}:
     get:
       tags: [学业发展]
