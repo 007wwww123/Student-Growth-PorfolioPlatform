@@ -3,6 +3,7 @@ import { API_BASE_PATH, SUCCESS_CODE } from '../api/constants'
 import type { FieldErrorDetail, SectionCode } from '../api/types'
 import {
   MockError,
+  appendMentorNote,
   approveSection,
   archiveStudents,
   authenticate,
@@ -10,6 +11,7 @@ import {
   completionStatus,
   dashboardOverview,
   getSection,
+  getMentorSection,
   handlePending,
   listArchiveCandidates,
   listEnrollClasses,
@@ -23,6 +25,7 @@ import {
   savePermissions,
   roleLabelOf,
   saveSection,
+  submitMentorFeedback,
   submitSection,
   withdrawSection,
   type MockIdentity,
@@ -224,7 +227,12 @@ export const handlers = [
     }
     const url = new URL(request.url)
     const academicYear = url.searchParams.get('academicYear') ?? DEFAULT_YEAR
-    return withAuth(request, (who) => ok(getSection(code, studentId, academicYear, who.role)))
+    // MENTOR 的详情是「统一信封 + 子表时间线」，不是普通表单（需求 4.7）。
+    return withAuth(request, (who) => ok(
+      code === 'mentor'
+        ? getMentorSection(studentId, academicYear, who.role, who.userId)
+        : getSection(code, studentId, academicYear, who.role),
+    ))
   }),
 
   http.put(`${API_BASE_PATH}/sections/:code/:studentId`, async ({ params, request }) => {
@@ -250,6 +258,16 @@ export const handlers = [
       return fail('EC-40002', '缺少必要参数：fields', 400)
     }
     const academicYear = String(body.academicYear ?? DEFAULT_YEAR)
+
+    // MENTOR 没有主表字段值：PUT 只接受空 fields，非空明确指路追加接口，
+    // 不能静默丢弃（会让人以为保存成功）。
+    if (code === 'mentor') {
+      if (Object.keys(fields as Record<string, unknown>).length > 0) {
+        return fail('EC-40003',
+          '导师寄语没有主表字段，请使用 POST /sections/mentor/{studentId}/notes 追加谈话记录', 400)
+      }
+      return withAuth(request, () => ok())
+    }
 
     return withAuth(request, (who) => {
       saveSection(code, studentId, academicYear, { fields }, who.role)
@@ -291,6 +309,43 @@ export const handlers = [
       return ok()
     })
   }),
+
+  // 板块六 导师寄语：谈话记录子表（需求 4.7 / F-11）
+  http.post(`${API_BASE_PATH}/sections/mentor/:studentId/notes`, async ({ params, request }) => {
+    const studentId = parseId(params.studentId as string)
+    if (!studentId) {
+      return fail('EC-40003', '学生 ID 必须为正整数', 400)
+    }
+    let body: Record<string, unknown>
+    try {
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+    }
+    return withAuth(request, (who) =>
+      ok(appendMentorNote(studentId, body, who.role, who.userId)),
+    )
+  }),
+
+  http.post(
+    `${API_BASE_PATH}/sections/mentor/:studentId/notes/:noteId/feedback`,
+    async ({ params, request }) => {
+      const studentId = parseId(params.studentId as string)
+      const noteId = parseId(params.noteId as string)
+      if (!studentId || !noteId) {
+        return fail('EC-40003', '学生 ID 与记录 ID 必须为正整数', 400)
+      }
+      let body: Record<string, unknown>
+      try {
+        body = (await request.json()) as Record<string, unknown>
+      } catch {
+        return fail('EC-40001', '请求格式不正确，请刷新页面重试', 400)
+      }
+      return withAuth(request, (who) =>
+        ok(submitMentorFeedback(studentId, noteId, body, who.role)),
+      )
+    },
+  ),
 
   http.post(
     `${API_BASE_PATH}/sections/:code/:studentId/fields/:fieldCode/confirm`,

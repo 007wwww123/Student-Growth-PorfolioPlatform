@@ -135,6 +135,37 @@ export interface SectionVO {
 }
 
 /**
+ * 时间线上的一条谈话记录（板块六 MENTOR，需求 4.7）。
+ *
+ * <p>学生端响应体里没有 internalRemark / counselorId 这两个键
+ * （服务端按角色裁剪，不是前端隐藏），作者只显示「辅导员」。</p>
+ */
+export interface MentorNoteVO {
+  id: number
+  talkDate: string
+  topic: string
+  topicLabel: string
+  advice: string
+  starLevel: number
+  feedback: string | null
+  feedbackAt: string | null
+  /** 仅学生端有意义；feedbackAt 非空即锁定 */
+  canFeedback: boolean
+  authorLabel: string
+  createdAt: string
+  /** 仅辅导员端返回；无备注时为 null */
+  internalRemark?: string | null
+  /** 仅辅导员端返回 */
+  counselorId?: number
+}
+
+/** 导师寄语详情：统一信封 + 子表时间线。fields 恒为空（本板块无主表字段值）。 */
+export interface MentorSectionVO extends SectionVO {
+  notes: MentorNoteVO[]
+  canAppend: boolean
+}
+
+/**
  * 待审列表行，对应后端 ReviewTaskVO。
  *
  * 只带列表需要的字段，打开详情仍走各板块详情接口，
