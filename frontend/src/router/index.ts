@@ -97,6 +97,20 @@ const router = createRouter({
       meta: { title: '字段权限配置', roles: ['ADMIN'] },
     },
     {
+      path: '/admin/org',
+      name: 'admin-org',
+      component: () => import('@/views/admin/OrgView.vue'),
+      // 管理员专属：学院/专业/班级与辅导员绑定，不接触档案内容
+      meta: { title: '组织架构', roles: ['ADMIN'] },
+    },
+    {
+      path: '/admin/accounts',
+      name: 'admin-accounts',
+      component: () => import('@/views/admin/AccountView.vue'),
+      // 管理员专属：账号开通、停用、重置密码、角色分配
+      meta: { title: '账号管理', roles: ['ADMIN'] },
+    },
+    {
       path: '/forbidden',
       name: 'forbidden',
       component: () => import('@/views/ForbiddenView.vue'),

@@ -1322,6 +1322,470 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /permissions/me:
+    get:
+      tags: [系统管理]
+      operationId: myPermissions
+      summary: 当前用户权限点
+      description: 返回当前账号的权限码与数据范围（ALL/CLASS/SELF）；管理员持临时授权时叠加 `archive:profile:read`。
+      responses:
+        '200':
+          description: 权限点列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /permissions/catalog:
+    get:
+      tags: [系统管理]
+      operationId: permissionCatalog
+      summary: 权限点字典（仅管理员）
+      responses:
+        '200':
+          description: 全量权限点
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /org/options:
+    get:
+      tags: [系统管理]
+      operationId: orgOptions
+      summary: 组织架构下拉数据
+      responses:
+        '200':
+          description: 学院/专业/班级/辅导员
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/colleges:
+    get:
+      tags: [系统管理]
+      operationId: listColleges
+      summary: 学院列表
+      responses:
+        '200':
+          description: 学院列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    post:
+      tags: [系统管理]
+      operationId: createCollege
+      summary: 新增学院（`org:college:manage`）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collegeCode, collegeName]
+              properties:
+                collegeCode: { type: string, maxLength: 32 }
+                collegeName: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/colleges/{id}:
+    put:
+      tags: [系统管理]
+      operationId: updateCollege
+      summary: 修改学院
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collegeCode, collegeName]
+              properties:
+                collegeCode: { type: string }
+                collegeName: { type: string }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/colleges/{id}/status:
+    put:
+      tags: [系统管理]
+      operationId: updateCollegeStatus
+      summary: 启用/停用学院（有启用专业时拒绝）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /org/majors:
+    get:
+      tags: [系统管理]
+      operationId: listMajors
+      summary: 专业列表
+      parameters:
+        - { name: collegeId, in: query, required: false, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 专业列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    post:
+      tags: [系统管理]
+      operationId: createMajor
+      summary: 新增专业（`org:major:manage`）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collegeId, majorCode, majorName]
+              properties:
+                collegeId: { type: integer, format: int64 }
+                majorCode: { type: string }
+                majorName: { type: string }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/majors/{id}:
+    put:
+      tags: [系统管理]
+      operationId: updateMajor
+      summary: 修改专业
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collegeId, majorCode, majorName]
+              properties:
+                collegeId: { type: integer, format: int64 }
+                majorCode: { type: string }
+                majorName: { type: string }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/majors/{id}/status:
+    put:
+      tags: [系统管理]
+      operationId: updateMajorStatus
+      summary: 启用/停用专业
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /org/classes:
+    get:
+      tags: [系统管理]
+      operationId: listClasses
+      summary: 班级列表（辅导员只看本班）
+      parameters:
+        - { name: collegeId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: majorId, in: query, required: false, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 班级列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    post:
+      tags: [系统管理]
+      operationId: createClass
+      summary: 新增班级（`org:class:manage`）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classCode, className, majorId, gradeYear]
+              properties:
+                classCode: { type: string }
+                className: { type: string }
+                majorId: { type: integer, format: int64 }
+                gradeYear: { type: integer }
+                counselorUserId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 新增结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/classes/{id}:
+    put:
+      tags: [系统管理]
+      operationId: updateClass
+      summary: 修改班级
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classCode, className, majorId, gradeYear]
+              properties:
+                classCode: { type: string }
+                className: { type: string }
+                majorId: { type: integer, format: int64 }
+                gradeYear: { type: integer }
+                counselorUserId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 修改结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/classes/{id}/counselor:
+    put:
+      tags: [系统管理]
+      operationId: assignCounselor
+      summary: 绑定/换绑辅导员
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [counselorUserId]
+              properties:
+                counselorUserId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 绑定结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /org/classes/{id}/status:
+    put:
+      tags: [系统管理]
+      operationId: updateClassStatus
+      summary: 启用/停用班级（有在读学生时拒绝）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /account/users:
+    get:
+      tags: [系统管理]
+      operationId: listAccounts
+      summary: 账号列表（`account:user:manage`）
+      parameters:
+        - { name: role, in: query, required: false, schema: { type: string, enum: [STU, COU, ADMIN] } }
+        - { name: status, in: query, required: false, schema: { type: integer, enum: [0, 1] } }
+        - { name: keyword, in: query, required: false, schema: { type: string } }
+        - { name: pageNum, in: query, required: false, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 账号分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    post:
+      tags: [系统管理]
+      operationId: createAccount
+      summary: 开通账号（返回一次初始密码）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName, role]
+              properties:
+                username: { type: string }
+                displayName: { type: string }
+                role: { type: string, enum: [STU, COU, ADMIN] }
+                studentId: { type: integer, format: int64, description: 学生账号必填 }
+                password: { type: string, description: 为空时学生取身份证后六位、其他角色随机 }
+      responses:
+        '200':
+          description: 开通结果（含初始密码）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /account/users/{id}/status:
+    put:
+      tags: [系统管理]
+      operationId: updateAccountStatus
+      summary: 启用/停用账号（不能停用自己）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /account/users/{id}/reset-password:
+    post:
+      tags: [系统管理]
+      operationId: resetAccountPassword
+      summary: 重置密码（不传密码则随机生成并返回一次）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string, minLength: 8, maxLength: 20 }
+      responses:
+        '200':
+          description: 重置结果（含新密码）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /account/users/{id}/role:
+    put:
+      tags: [系统管理]
+      operationId: assignAccountRole
+      summary: 分配角色（学生账号不可改）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [STU, COU, ADMIN] }
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /account/batch-open:
+    post:
+      tags: [系统管理]
+      operationId: batchOpenAccounts
+      summary: 按班级批量开通学生账号
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classCodes]
+              properties:
+                classCodes:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: 批量结果（含初始密码）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1466,6 +1930,14 @@ components:
     VoidResponse:
       allOf:
         - $ref: '#/components/schemas/Result'
+
+    ObjectResponse:
+      allOf:
+        - $ref: '#/components/schemas/Result'
+        - type: object
+          description: data 为具体业务对象；系统管理类接口的细节以响应示例与代码为准。
+          properties:
+            data: {}
 
     SectionDetailResponse:
       allOf:

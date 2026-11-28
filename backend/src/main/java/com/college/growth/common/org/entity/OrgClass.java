@@ -25,6 +25,12 @@ public class OrgClass {
     /** 班级名称，如 软件2401。 */
     private String className;
 
+    /** 所属学院 org_college.id（脚本 16 增列）。 */
+    private Long collegeId;
+
+    /** 所属专业 org_major.id（脚本 16 增列）。 */
+    private Long majorId;
+
     /** 专业名称，basic.majorId 由此推导。 */
     private String majorName;
 

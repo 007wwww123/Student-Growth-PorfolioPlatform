@@ -4,6 +4,7 @@ import com.college.growth.common.result.Result;
 import com.college.growth.permission.common.PermissionConstants;
 import com.college.growth.permission.dto.PermissionSaveDTO;
 import com.college.growth.permission.service.FieldPermissionService;
+import com.college.growth.permission.support.RequirePermission;
 import com.college.growth.permission.vo.PermissionMatrixVO;
 import com.college.growth.permission.vo.PermissionSaveResultVO;
 import jakarta.validation.Valid;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping(PermissionConstants.API_BASE_PATH)
+@RequirePermission("config:field:manage")
 public class FieldPermissionController {
 
     private final FieldPermissionService fieldPermissionService;

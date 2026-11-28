@@ -117,6 +117,24 @@ const PERMISSION_ITEM: NavItem = {
   matchNames: ['admin-permissions'],
 }
 
+/** 组织架构：管理员专属，维护学院/专业/班级与辅导员绑定（不接触档案内容）。 */
+const ORG_ITEM: NavItem = {
+  key: 'org',
+  label: '组织架构',
+  icon: 'settings',
+  to: '/admin/org',
+  matchNames: ['admin-org'],
+}
+
+/** 账号管理：管理员专属，账号开通/停用/重置/角色分配（不接触档案内容）。 */
+const ACCOUNT_ITEM: NavItem = {
+  key: 'accounts',
+  label: '账号管理',
+  icon: 'profile',
+  to: '/admin/accounts',
+  matchNames: ['admin-accounts'],
+}
+
 /** 教师、管理员共用一类菜单：总览 + 六大模块 + 审核工作台。 */
 export function isStaff(role: UserRole | undefined): boolean {
   return role === 'COU' || role === 'ADMIN'
@@ -144,8 +162,9 @@ export function isStaff(role: UserRole | undefined): boolean {
  */
 export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavGroup[] {
   if (role === 'ADMIN' && !tempGrant) {
-    // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现
-    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM] }]
+    // 无业务数据权限：总览/板块/审核都会 403 或空视图，菜单里不出现；
+    // 系统管理（字段权限、组织架构、账号管理）不接触档案内容，保留。
+    return [{ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, ORG_ITEM, ACCOUNT_ITEM] }]
   }
   if (isStaff(role)) {
     const groups: NavGroup[] = [
@@ -157,9 +176,9 @@ export function navGroupsOf(role: UserRole | undefined, tempGrant = false): NavG
     if (role === 'COU') {
       groups.push({ key: 'manage', title: '档案管理', items: [ENROLL_ITEM, ARCHIVE_ITEM] })
     }
-    // 字段权限配置是管理员专属；辅导员不出现，路由守卫也会拦截
+    // 字段权限、组织架构、账号管理是管理员专属；辅导员不出现，路由守卫也会拦截
     if (role === 'ADMIN') {
-      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM] })
+      groups.push({ key: 'system', title: '系统管理', items: [PERMISSION_ITEM, ORG_ITEM, ACCOUNT_ITEM] })
     }
     return groups
   }
