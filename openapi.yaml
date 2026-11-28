@@ -1918,6 +1918,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/ObjectResponse'
 
+  /files:
+    post:
+      tags: [档案查看]
+      operationId: uploadFile
+      summary: 上传附件（10MB，JPG/PNG/WebP/PDF）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, studentId]
+              properties:
+                file: { type: string, format: binary }
+                studentId: { type: integer, format: int64 }
+                bizType: { type: string }
+                bizId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 附件元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /files/{id}:
+    get:
+      tags: [档案查看]
+      operationId: getFileMeta
+      summary: 附件元数据
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /files/{id}/download:
+    get:
+      tags: [档案查看]
+      operationId: downloadFile
+      summary: 下载附件（鉴权 + 审计）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 文件
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+
   /audit/logs:
     get:
       tags: [系统管理]

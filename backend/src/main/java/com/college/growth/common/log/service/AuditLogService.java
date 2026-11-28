@@ -60,6 +60,9 @@ public class AuditLogService {
     /** 业务类型：变更申诉。 */
     public static final String BIZ_APPEAL = "APPEAL";
 
+    /** 业务类型：附件。 */
+    public static final String BIZ_FILE = "FILE";
+
     /** 业务类型：组织架构变更（学院/专业/班级）。 */
     public static final String BIZ_ORG = "ORG";
 
@@ -113,6 +116,9 @@ public class AuditLogService {
 
     /** 动作：到期。 */
     public static final String ACTION_EXPIRE = "EXPIRE";
+
+    /** 动作：上传。 */
+    public static final String ACTION_UPLOAD = "UPLOAD";
 
     /** 动作：从学生主数据重新同步。 */
     public static final String ACTION_SYNC = "SYNC";
