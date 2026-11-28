@@ -38,6 +38,9 @@ public class SysUser {
     /** 1 表示管理员持临时只读授权（BR-S03）。 */
     private Integer tempGrant;
 
+    /** 临时授权到期时间；为空表示未设置（历史演示账号）。 */
+    private LocalDateTime tempGrantExpireAt;
+
     /** 1 启用 / 0 停用。 */
     private Integer status;
 

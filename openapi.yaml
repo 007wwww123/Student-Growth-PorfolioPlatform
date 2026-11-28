@@ -1322,6 +1322,115 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/temp-grants/applications:
+    post:
+      tags: [系统管理]
+      operationId: applyTempGrant
+      summary: 申请临时授权（1–4 小时，`grant:temp:request`）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hours, reason]
+              properties:
+                hours: { type: integer, minimum: 1, maximum: 4 }
+                reason: { type: string, minLength: 5, maxLength: 200 }
+      responses:
+        '200':
+          description: 申请单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+    get:
+      tags: [系统管理]
+      operationId: listTempGrants
+      summary: 临时授权申请列表（最近 100 条）
+      responses:
+        '200':
+          description: 申请列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/temp-grants/active:
+    get:
+      tags: [系统管理]
+      operationId: activeTempGrant
+      summary: 当前生效中的临时授权
+      responses:
+        '200':
+          description: 生效授权
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/temp-grants/applications/{id}/approve:
+    post:
+      tags: [系统管理]
+      operationId: approveTempGrant
+      summary: 审批通过（不能审批本人申请，`grant:temp:approve`）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 审批结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/temp-grants/applications/{id}/reject:
+    post:
+      tags: [系统管理]
+      operationId: rejectTempGrant
+      summary: 审批拒绝（理由必填）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remark]
+              properties:
+                remark: { type: string, minLength: 2, maxLength: 500 }
+      responses:
+        '200':
+          description: 审批结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
+  /admin/temp-grants/applications/{id}/revoke:
+    post:
+      tags: [系统管理]
+      operationId: revokeTempGrant
+      summary: 撤销（申请人或审批人）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 撤销结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectResponse'
+
   /audit/logs:
     get:
       tags: [系统管理]

@@ -1,9 +1,12 @@
 package com.college.growth.common.web;
 
+import com.college.growth.auth.entity.SysUser;
+import com.college.growth.auth.mapper.SysUserMapper;
 import com.college.growth.auth.service.JwtService;
 import com.college.growth.auth.service.TokenBlacklistService;
 import com.college.growth.common.context.CurrentUser;
 import com.college.growth.common.context.UserContext;
+import com.college.growth.common.enums.UserRoleEnum;
 import com.college.growth.common.result.Result;
 import com.college.growth.common.result.ResultCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +16,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -53,11 +57,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final ObjectMapper objectMapper;
 
+    private final SysUserMapper userMapper;
+
     public JwtAuthFilter(JwtService jwtService, TokenBlacklistService blacklistService,
-                         ObjectMapper objectMapper) {
+                         ObjectMapper objectMapper, SysUserMapper userMapper) {
         this.jwtService = jwtService;
         this.blacklistService = blacklistService;
         this.objectMapper = objectMapper;
+        this.userMapper = userMapper;
     }
 
     @Override
@@ -90,7 +97,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 writeUnauthorized(response, ResultCode.UNAUTHORIZED, "登录已失效，请重新登录");
                 return;
             }
-            UserContext.set(new CurrentUser(claims.userId(), claims.role(), claims.tempGrant()));
+            UserContext.set(new CurrentUser(claims.userId(), claims.role(), effectiveTempGrant(claims)));
             try {
                 filterChain.doFilter(request, response);
             } finally {
@@ -103,9 +110,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * 临时授权以数据库为准：审批通过后旧令牌立即生效，到期/撤销后立即失效。
+     * 非管理员一律 false，避免令牌里的旧 claim 越权。
+     */
+    private boolean effectiveTempGrant(JwtService.Claims claims) {
+        if (claims.role() != UserRoleEnum.ADMIN) {
+            return false;
+        }
+        SysUser user = userMapper.selectById(claims.userId());
+        if (user == null || user.getStatus() == null || user.getStatus() != 1
+                || user.getTempGrant() == null || user.getTempGrant() != 1) {
+            return false;
+        }
+        LocalDateTime expireAt = user.getTempGrantExpireAt();
+        return expireAt == null || expireAt.isAfter(LocalDateTime.now());
+    }
+
     /** 去掉 context-path（/api），只留业务路径。 */
-    private String pathOf(HttpServletRequest request) {
-        String uri = request.getRequestURI();
+    private String pathOf(HttpServletRequest request) {        String uri = request.getRequestURI();
         String context = request.getContextPath();
         if (context != null && !context.isEmpty() && uri.startsWith(context)) {
             return uri.substring(context.length());
