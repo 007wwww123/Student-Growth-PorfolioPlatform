@@ -97,8 +97,17 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
     // 401 意味着令牌缺失、过期或被吊销：清掉本地登录态并回到登录页。
     // 登录接口自身的 401 是「账号或密码错误」，必须留给页面提示，不能跳转。
     if (normalized.httpStatus === 401 && !isLoginRequest(config)) {
-      clearSession()
-      redirectToLogin()
+      /**
+       * mock 令牌只对浏览器内的 MSW 有效：mock 没覆盖到的请求会被放行穿透到真实后端，
+       * 真实后端的 JwtAuthFilter 一定以「令牌格式不正确」拒绝（mock.1001.STU.0 不是 JWT）。
+       * 这不是「会话过期」，清会话会表现为「刚登录就被踢回登录页」，
+       * 所以只把错误抛给页面展示；真正过期的 JWT 仍按原逻辑清理并回登录页。
+       */
+      const token = getToken()
+      if (token == null || !token.startsWith('mock.')) {
+        clearSession()
+        redirectToLogin()
+      }
     }
     throw normalized
   }

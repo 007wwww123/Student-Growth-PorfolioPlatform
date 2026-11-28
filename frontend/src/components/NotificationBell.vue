@@ -8,6 +8,7 @@ import {
   type Notification,
 } from '@/api/notifications'
 import { isApiError, type ApiError } from '@/api/http'
+import { getToken } from '@/auth/session'
 
 /**
  * 顶部通知铃铛（S-1-05/07）。
@@ -69,6 +70,14 @@ function formatTime(value: string): string {
 }
 
 onMounted(() => {
+  /**
+   * 冷启动时外壳会先于路由守卫渲染，`getUser()` 可能还是上次残留的登录信息；
+   * 没有有效令牌就不要发请求，否则会打出一个不带 Authorization 的 401，
+   * 在控制台里看起来像「登录失败」。登录成功后铃铛会随顶部栏重新挂载。
+   */
+  if (getToken() == null) {
+    return
+  }
   void loadCount()
   timer = setInterval(loadCount, 60000)
 })

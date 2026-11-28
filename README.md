@@ -32,8 +32,8 @@
 [浏览器]
    │  HTTP  /api/*
    ▼
-[Vue 3 单页应用  frontend/  :5173] ──VITE_USE_MOCK=true──▶ [MSW mock，浏览器内拦截]
-   │  axios  baseURL=/api
+[Vue 3 单页应用  frontend/  :5173]
+   │  axios  baseURL=/api（默认直连后端；只有 VITE_USE_MOCK=true 时才被 MSW 拦截）
    │  Vite 开发代理 → 127.0.0.1:8080（路径不重写）
    ▼
 [Spring Boot 3.2  backend/  :8080] ──JDBC──▶ [MySQL 8]
@@ -47,7 +47,7 @@
 
 - **浏览器只与 `/api` 通信**，不直连数据库。后端 `context-path` 就是 `/api`，前端开发代理原样转发，不做路径重写。
 - **`openapi.yaml` 是唯一契约**，字段名、错误码、分页、鉴权头都写在这里。契约一改，前端 mock 与后端 DTO 必须同步。
-- **两端可独立运行**。前端默认走 mock，不启后端也能跑通全部页面；后端不启前端也能用 curl 验证接口。联调只是把前端的 mock 开关关掉。
+- **两端可独立运行**。前端默认直连真实后端（`VITE_USE_MOCK=false`）；只有在后端没起、只想调页面样式时，才用 `.env.local` 临时打开 `VITE_USE_MOCK=true` 走 MSW mock。后端不启前端也能用 curl 验证接口。
 
 ## 三、仓库结构
 
@@ -88,7 +88,7 @@ Student-Growth-PorfolioPlatform/
 | 技术栈 | Spring Boot 3.2.12 + MyBatis-Plus 3.5.7 | Vue 3.5 + Vite 5.4 + TypeScript 5.6 |
 | 端口 | `8080`（`SERVER_PORT` 可改） | `5173`（Vite 默认） |
 | 接口前缀 | `context-path: /api` | `baseURL: /api`，开发代理转发至 8080 |
-| 数据来源 | MySQL（业务数据）+ Redis（缓存，预留） | 后端接口；后端未实现时走 MSW mock |
+| 数据来源 | MySQL（业务数据）+ Redis（缓存，预留） | 后端接口；仅 `VITE_USE_MOCK=true` 时走 MSW mock |
 | 契约依据 | `openapi.yaml` | `openapi.yaml`（mock 与请求封装均按它写） |
 | 统一响应 | `Result`：`code / message / traceId / timestamp / data / details` | `request<T>()` 解包，失败抛 `ApiError` |
 
@@ -100,7 +100,9 @@ Student-Growth-PorfolioPlatform/
         ← Result 包装 ← ApiError 或 data ← 页面渲染
 ```
 
-开发期前端 `VITE_USE_MOCK=true` 时请求在浏览器内被 MSW 拦截，不到达后端；改为 `false` 即切换真实接口，页面代码不变。
+开发期默认 `VITE_USE_MOCK=false`：请求经 Vite 代理打到真实后端，链路与生产一致。若要脱离后端只看页面，在 `.env.local` 写 `VITE_USE_MOCK=true`（该文件不提交），请求就在浏览器内被 MSW 拦截。
+
+> 注意：mock 令牌形如 `mock.<userId>.<role>.<0|1>`，不是 JWT，真实后端一律 401。**不要在后端已启动时开着 mock 登录**，否则 mock 未覆盖的接口会穿透到后端被拒，表现为「登录成功却立刻退回登录页」。页面代码不区分两种模式。
 
 ## 五、运行要求与启动方式
 
@@ -143,7 +145,7 @@ npm --prefix frontend run dev
 | 后端接口 | http://localhost:8080/api |
 | 健康检查 | http://localhost:8080/api/actuator/health |
 
-**只看前端**：跳过第 1、2 步，`cd frontend && npm install && npm run dev` 即可，默认 mock 不依赖后端。
+**只看前端**：跳过第 1、2 步，`cd frontend && npm install` 后，在 `.env.local` 写 `VITE_USE_MOCK=true` 再 `npm run dev`；默认（`false`）仍需要后端在 8080，否则页面会提示网络异常。
 
 **首次启动前**要按 `01 → 12` 跑完 `backend/src/main/resources/db/sql/` 下的脚本，其中 `08`/`09` 建 `sys_user` 并写入演示账号；
 页面会先跳登录页，用 `2024010101` / `cou9001` / `admin0`（无业务授权）或 `admin`（持临时授权），密码统一 `Passw0rd!`
