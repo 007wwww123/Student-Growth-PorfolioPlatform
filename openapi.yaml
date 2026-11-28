@@ -1752,27 +1752,27 @@ components:
 
     CareerSectionSaveDTO:
       type: object
-      description: 职业规划保存请求，对应 `CareerSectionSaveDTO`
+      description: |
+        职业规划保存请求，对应 `CareerSectionSaveDTO`。
+
+        与其余板块同一套「信封 + `fields`」结构，字段元数据全部来自 `arc_field_def`；
+        平铺写法仍被接受，用于兼容早期联调脚本。本板块只记录规划意图，
+        毕业去向的最终值以就业系统为准，不作为统计口径。
       required: [academicYear]
       properties:
         academicYear:
           type: string
           example: 2025-2026-1
-        intention:
-          type: string
-          description: 就业意向
-        industry:
-          type: string
-          description: 目标行业
-        position:
-          type: string
-          description: 目标岗位
-        plan:
-          type: string
-          description: 实施计划
-        support:
-          type: string
-          description: 需要支持
+        fields:
+          type: object
+          description: 字段短名 → 值；值为 `null` 表示清空该字段
+          additionalProperties: true
+          example:
+            intention: POSTGRAD
+            industry: 工业软件
+            position: 后端开发工程师
+            plan: 已完成两个 Spring Boot 项目，刷题 200 道
+            support: 希望获得实习内推与简历修改建议
 
     MentorSectionSaveDTO:
       type: object
