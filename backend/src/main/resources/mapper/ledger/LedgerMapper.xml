@@ -60,6 +60,21 @@
         WHERE p.academic_year = #{academicYear}
           <!-- 与汇总同一口径：休学/退学/毕业学生不计入台账统计基数（BR-L03），档案本身保留 -->
           AND s.status = 1
+        <!--
+          关键字必须在这里过滤，不能放到外层 taskFilter 里按派生列 t.studentName 过滤：
+          MySQL 8.0.22+ 的「派生表条件下推」（derived_condition_pushdown，默认开启）
+          会把 outer WHERE 的 LIKE 推到 UNION 分支上，而多字节条件下推后匹配语义出错——
+          实测 2025-2026-1 的李明（studentName=李明）在派生表外层 `LIKE '%李%'` 返回 0，
+          关掉该优化后返回 1。直接在分支里对基础列过滤，既不依赖优化器行为，也能提前缩小结果集。
+          注意：分支 1 的姓名有「学籍优先、基本信息板块兜底」的 COALESCE，过滤条件必须与之一致，
+          否则会出现「列表显示某名字却搜不到」。
+        -->
+        <if test="keyword != null and keyword != ''">
+            AND (COALESCE(NULLIF(TRIM(s.name), ''), ni.value_text, '')
+                     LIKE CONCAT('%', #{keyword}, '%')
+                 OR COALESCE(NULLIF(TRIM(s.student_no), ''), '')
+                     LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
         UNION ALL
         SELECT NULL AS profileId,
                s.id AS studentId,
@@ -83,9 +98,18 @@
               WHERE x.student_id = s.id
                 AND x.academic_year = #{academicYear}
           )
+        <if test="keyword != null and keyword != ''">
+            AND (COALESCE(NULLIF(TRIM(s.name), ''), '') LIKE CONCAT('%', #{keyword}, '%')
+                 OR COALESCE(NULLIF(TRIM(s.student_no), ''), '') LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
     </sql>
 
-    <!-- 明细过滤：count 与 list 共用，保证 AC-020 的「筛出几行 = 计数」 -->
+    <!--
+      明细过滤：count 与 list 共用，保证 AC-020 的「筛出几行 = 计数」。
+
+      关键字不在这里：MySQL 的派生表条件下推在 utf8mb4 LIKE 上会算错（详见 taskRowSource
+      里的说明），因此它被下沉到 UNION 各分支，与本片段一样被 count/list 共享。
+    -->
     <sql id="taskFilter">
         WHERE 1 = 1
         <if test="counselorId != null">
@@ -101,10 +125,6 @@
         </if>
         <if test="status != null and status != ''">
             AND t.status = #{status}
-        </if>
-        <if test="keyword != null and keyword != ''">
-            AND (t.studentName LIKE CONCAT('%', #{keyword}, '%')
-                 OR t.studentNo LIKE CONCAT('%', #{keyword}, '%'))
         </if>
     </sql>
 
