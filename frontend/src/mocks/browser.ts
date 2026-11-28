@@ -11,8 +11,19 @@ export const worker = setupWorker(...handlers)
 
 export async function enableMocking(): Promise<void> {
   await worker.start({
-    // 未覆盖的请求（静态资源、HMR 等）直接放行
-    onUnhandledRequest: 'bypass',
+    /**
+     * 未覆盖的请求放行（静态资源、HMR 等）。
+     *
+     * <p>{@code /api} 下的接口一旦没写 mock，就会带着 mock 令牌打到真实后端并被 401 拒绝；
+     * 这里显式告警，避免「页面能登录、却莫名其妙被踢回登录页」时无从排查。</p>
+     */
+    onUnhandledRequest(request, print) {
+      const { pathname } = new URL(request.url)
+      if (pathname.startsWith('/api/')) {
+        print.warning()
+      }
+      // 其余请求（html/js/css/字体、Vite HMR）静默放行
+    },
     serviceWorker: {
       url: `${import.meta.env.BASE_URL}mockServiceWorker.js`,
     },

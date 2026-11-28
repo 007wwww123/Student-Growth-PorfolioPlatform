@@ -176,6 +176,27 @@ export const handlers = [
   http.post(`${API_BASE_PATH}/auth/logout`, ({ request }) => withAuth(request, () => ok())),
 
   // ------------------------------------------------------------------
+  // 站内通知：顶栏铃铛在登录后立刻请求未读数。
+  // 这里必须覆盖，否则请求会被放行到真实后端、带着 mock 令牌 401，
+  // 表现为「登录成功却立刻退回登录页」。mock 不模拟通知内容，只保证空列表可用。
+  // ------------------------------------------------------------------
+  http.get(`${API_BASE_PATH}/notifications/unread-count`, ({ request }) =>
+    withAuth(request, () => ok(0)),
+  ),
+
+  http.get(`${API_BASE_PATH}/notifications`, ({ request }) =>
+    withAuth(request, () => ok({ records: [], total: 0, pageNum: 1, pageSize: 20 })),
+  ),
+
+  http.post(`${API_BASE_PATH}/notifications/:id/read`, ({ request }) =>
+    withAuth(request, () => ok()),
+  ),
+
+  http.post(`${API_BASE_PATH}/notifications/read-all`, ({ request }) =>
+    withAuth(request, () => ok()),
+  ),
+
+  // ------------------------------------------------------------------
   // 管理员 · 字段权限配置（只读写字段定义，不接触学生档案）
   // ------------------------------------------------------------------
   http.get(`${API_BASE_PATH}/admin/permissions`, ({ request }) =>

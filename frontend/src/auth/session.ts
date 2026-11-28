@@ -77,8 +77,22 @@ export function getToken(): string | null {
   return validateToken(cachedToken)
 }
 
+/** mock 模式签发的假令牌形如 mock.<userId>.<role>.<0|1>：不是 JWT，真实后端一律拒绝。 */
+function isMockToken(token: string): boolean {
+  return token.startsWith('mock.')
+}
+
 function validateToken(token: string | null): string | null {
   if (!token) {
+    return null
+  }
+  /**
+   * 关掉 mock 后，浏览器里可能还留着上次 mock 登录的假令牌。
+   * 它没有 JWT 的 exp 声明，会被当成「已登录」，随后第一个真实请求必然 401，
+   * 表现为「登录后立刻被踢回登录页」；这里直接清掉，避免把残留状态当成会话。
+   */
+  if (import.meta.env.VITE_USE_MOCK !== 'true' && isMockToken(token)) {
+    clearSession()
     return null
   }
   const expiresAt = expiresAtOf(token)
