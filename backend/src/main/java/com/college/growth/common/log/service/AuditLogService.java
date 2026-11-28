@@ -45,6 +45,9 @@ public class AuditLogService {
     /** 业务类型：字段定义配置（新增/修改/启停/必填开关）。 */
     public static final String BIZ_FIELD_CONFIG = "FIELD_CONFIG";
 
+    /** 业务类型：学业成果（成绩/证书/竞赛）。 */
+    public static final String BIZ_ACADEMIC = "ACADEMIC";
+
     /** 业务类型：组织架构变更（学院/专业/班级）。 */
     public static final String BIZ_ORG = "ORG";
 
